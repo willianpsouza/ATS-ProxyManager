@@ -104,6 +104,19 @@ type ProxyStat struct {
 	CacheHits         int64     `json:"cache_hits"`
 	CacheMisses       int64     `json:"cache_misses"`
 	Errors            int       `json:"errors"`
+
+	// Métricas expandidas
+	TotalRequests     int64 `json:"total_requests"`
+	ConnectRequests   int64 `json:"connect_requests"`
+	Responses2xx      int64 `json:"responses_2xx"`
+	Responses3xx      int64 `json:"responses_3xx"`
+	Responses4xx      int64 `json:"responses_4xx"`
+	Responses5xx      int64 `json:"responses_5xx"`
+	ErrConnectFail    int   `json:"err_connect_fail"`
+	ErrClientAbort    int   `json:"err_client_abort"`
+	BrokenServerConns int   `json:"broken_server_conns"`
+	BytesIn           int64 `json:"bytes_in"`
+	BytesOut          int64 `json:"bytes_out"`
 }
 
 type ProxyLog struct {

@@ -1,0 +1,57 @@
+# ATS 10 records.yaml — Forward Proxy Configuration
+# Based on official trafficserver/trafficserver:latest defaults
+# Ref: https://docs.trafficserver.apache.org/en/latest/admin-guide/files/records.yaml.en.html
+
+records:
+  # Portas HTTP
+  http:
+    server_ports: 8080 8080:ipv6
+
+    # Forward proxy: aceita requests sem remap
+    cache:
+      http: 1
+
+    # Parent proxy routing
+    parent_proxy:
+      fail_threshold: 10
+      retry_time: 30
+      total_connect_attempts: 4
+
+    # Via headers para debug
+    insert_request_via_str: 1
+    insert_response_via_str: 2
+
+    # Timeouts
+    connect_attempts_timeout: 30
+    keep_alive_no_activity_timeout_in: 115
+    keep_alive_no_activity_timeout_out: 120
+    transaction_no_activity_timeout_in: 30
+    transaction_no_activity_timeout_out: 30
+
+    # CONNECT tunnel (HTTPS)
+    connect_ports: 443 563
+
+    # Bypass parent para uncacheable
+    uncacheable_requests_bypass_parent: 1
+
+  # Forward proxy: remap not required
+  url_remap:
+    pristine_host_hdr: 1
+    remap_required: 0
+
+  # Desabilita reverse proxy (somos forward proxy)
+  reverse_proxy:
+    enabled: 0
+
+  # Debug (desligado por padrão, helper liga quando necessário)
+  diags:
+    debug:
+      enabled: 0
+      tags: http|parent
+
+  # Log rotation
+  log:
+    auto_delete_rolled_files: 1
+    rolling_enabled: 1
+    rolling_interval_sec: 86400
+    rolling_size_mb: 100

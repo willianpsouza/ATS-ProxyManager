@@ -214,6 +214,18 @@ type SyncMetrics struct {
 	CacheHits         int64 `json:"cache_hits"`
 	CacheMisses       int64 `json:"cache_misses"`
 	Errors            int64 `json:"errors"`
+
+	TotalRequests     int64 `json:"total_requests"`
+	ConnectRequests   int64 `json:"connect_requests"`
+	Responses2xx      int64 `json:"responses_2xx"`
+	Responses3xx      int64 `json:"responses_3xx"`
+	Responses4xx      int64 `json:"responses_4xx"`
+	Responses5xx      int64 `json:"responses_5xx"`
+	ErrConnectFail    int64 `json:"err_connect_fail"`
+	ErrClientAbort    int64 `json:"err_client_abort"`
+	BrokenServerConns int64 `json:"broken_server_conns"`
+	BytesIn           int64 `json:"bytes_in"`
+	BytesOut          int64 `json:"bytes_out"`
 }
 
 func (s *SyncService) Stats(ctx context.Context, req SyncStatsRequest) error {
@@ -231,6 +243,17 @@ func (s *SyncService) Stats(ctx context.Context, req SyncStatsRequest) error {
 		CacheHits:         req.Metrics.CacheHits,
 		CacheMisses:       req.Metrics.CacheMisses,
 		Errors:            int(req.Metrics.Errors),
+		TotalRequests:     req.Metrics.TotalRequests,
+		ConnectRequests:   req.Metrics.ConnectRequests,
+		Responses2xx:      req.Metrics.Responses2xx,
+		Responses3xx:      req.Metrics.Responses3xx,
+		Responses4xx:      req.Metrics.Responses4xx,
+		Responses5xx:      req.Metrics.Responses5xx,
+		ErrConnectFail:    int(req.Metrics.ErrConnectFail),
+		ErrClientAbort:    int(req.Metrics.ErrClientAbort),
+		BrokenServerConns: int(req.Metrics.BrokenServerConns),
+		BytesIn:           req.Metrics.BytesIn,
+		BytesOut:          req.Metrics.BytesOut,
 	}
 
 	return s.proxyStats.Create(ctx, stat)

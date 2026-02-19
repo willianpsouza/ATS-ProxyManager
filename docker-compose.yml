@@ -45,6 +45,32 @@ services:
       redis:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+  # Proxy helper sem ATS (leve, para testes de sync)
   proxy-01:
     build:
       context: ./helper
@@ -63,5 +89,32 @@ services:
     depends_on:
       - backend
 
+  # Proxy completo com ATS real + helper
+  proxy-full-01:
+    build:
+      context: .
+      dockerfile: proxy-full/Dockerfile
+    ports:
+      - "9080:8080"
+      - "9443:8443"
+    volumes:
+      - ats_cache_01:/opt/var/cache/trafficserver
+      - ats_logs_01:/opt/var/log/trafficserver
+    environment:
+      BACKEND_URL: http://backend:8080
+      CONFIG_ID: config-full-01
+      PROXY_HOSTNAME: proxy-full-01
+      SYNC_INTERVAL: "30s"
+    healthcheck:
+      test: ["CMD", "traffic_ctl", "server", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
+  ats_cache_01:
+  ats_logs_01:

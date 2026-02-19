@@ -26,8 +26,10 @@ WORKDIR /app
 # Copia binário
 COPY --from=builder /helper /app/helper
 
-# Usuário não-root
-RUN adduser -D -u 1000 helper
+# Cria diretório de config e usuário não-root
+RUN adduser -D -u 1000 helper && \
+    mkdir -p /tmp/ats-config && \
+    chown helper:helper /tmp/ats-config
 USER helper
 
 ENTRYPOINT ["/app/helper"]

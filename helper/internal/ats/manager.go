@@ -162,10 +162,74 @@ func (m *Manager) CollectStats() (sync.Metrics, error) {
 		metrics.CacheMisses = val
 	}
 
-	// Erros de conexão
-	val, err = m.getMetric("proxy.process.http.err_connect_fail_count_stat")
+	// Erros — soma de todos os tipos de erro
+	var totalErrors int64
+	errMetrics := []string{
+		"proxy.process.http.transaction_counts.errors.aborts",
+		"proxy.process.http.transaction_counts.errors.connect_failed",
+		"proxy.process.http.transaction_counts.errors.possible_aborts",
+		"proxy.process.http.transaction_counts.errors.pre_accept_hangups",
+		"proxy.process.http.transaction_counts.errors.other",
+	}
+	for _, name := range errMetrics {
+		if v, e := m.getMetric(name); e == nil {
+			totalErrors += v
+		}
+	}
+	metrics.Errors = totalErrors
+
+	// Total de requests completos
+	val, err = m.getMetric("proxy.process.http.completed_requests")
 	if err == nil {
-		metrics.Errors = val
+		metrics.TotalRequests = val
+	}
+
+	// CONNECT requests (HTTPS tunnels)
+	val, err = m.getMetric("proxy.process.http.connect_requests")
+	if err == nil {
+		metrics.ConnectRequests = val
+	}
+
+	// Response status codes por faixa
+	val, err = m.getMetric("proxy.process.http.2xx_responses")
+	if err == nil {
+		metrics.Responses2xx = val
+	}
+	val, err = m.getMetric("proxy.process.http.3xx_responses")
+	if err == nil {
+		metrics.Responses3xx = val
+	}
+	val, err = m.getMetric("proxy.process.http.4xx_responses")
+	if err == nil {
+		metrics.Responses4xx = val
+	}
+	val, err = m.getMetric("proxy.process.http.5xx_responses")
+	if err == nil {
+		metrics.Responses5xx = val
+	}
+
+	// Erros detalhados
+	val, err = m.getMetric("proxy.process.http.err_connect_fail_count")
+	if err == nil {
+		metrics.ErrConnectFail = val
+	}
+	val, err = m.getMetric("proxy.process.http.err_client_abort_count")
+	if err == nil {
+		metrics.ErrClientAbort = val
+	}
+	val, err = m.getMetric("proxy.process.http.broken_server_connections")
+	if err == nil {
+		metrics.BrokenServerConns = val
+	}
+
+	// Bytes transferidos (client-side)
+	val, err = m.getMetric("proxy.process.http.user_agent_total_request_bytes")
+	if err == nil {
+		metrics.BytesIn = val
+	}
+	val, err = m.getMetric("proxy.process.http.user_agent_total_response_bytes")
+	if err == nil {
+		metrics.BytesOut = val
 	}
 
 	return metrics, nil
@@ -262,7 +326,7 @@ func (m *Manager) readLastLines(path string, n int) []string {
 
 // IsHealthy verifica se o ATS está funcionando
 func (m *Manager) IsHealthy() bool {
-	cmd := exec.Command("traffic_ctl", "status")
+	cmd := exec.Command("traffic_ctl", "server", "status")
 	err := cmd.Run()
 	return err == nil
 }

@@ -180,12 +180,25 @@ CREATE TABLE proxy_stats (
     proxy_id UUID NOT NULL REFERENCES proxies(id) ON DELETE CASCADE,
     collected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
-    -- Métricas
+    -- Métricas básicas
     active_connections INTEGER DEFAULT 0,
     total_connections BIGINT DEFAULT 0,
     cache_hits BIGINT DEFAULT 0,
     cache_misses BIGINT DEFAULT 0,
-    errors INTEGER DEFAULT 0
+    errors INTEGER DEFAULT 0,
+
+    -- Métricas expandidas (ATS 10)
+    total_requests BIGINT DEFAULT 0,
+    connect_requests BIGINT DEFAULT 0,
+    responses_2xx BIGINT DEFAULT 0,
+    responses_3xx BIGINT DEFAULT 0,
+    responses_4xx BIGINT DEFAULT 0,
+    responses_5xx BIGINT DEFAULT 0,
+    err_connect_fail INTEGER DEFAULT 0,
+    err_client_abort INTEGER DEFAULT 0,
+    broken_server_conns INTEGER DEFAULT 0,
+    bytes_in BIGINT DEFAULT 0,
+    bytes_out BIGINT DEFAULT 0
 );
 
 -- Índices

@@ -1,0 +1,10 @@
+# logging.yaml — ATS 10 logging configuration
+logging:
+  formats:
+    - name: combined
+      format: '%<chi> - %<caun> [%<cqtn>] "%<cqtx>" %<pssc> %<pscl> "%<{Referer}cqh>" "%<{User-Agent}cqh>"'
+
+  logs:
+    - filename: access
+      format: combined
+      mode: ascii
