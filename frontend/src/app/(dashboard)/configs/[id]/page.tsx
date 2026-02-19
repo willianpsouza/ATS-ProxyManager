@@ -21,6 +21,7 @@ export default function ConfigDetailPage() {
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
+  const [cloning, setCloning] = useState(false);
 
   // Edit state
   const [name, setName] = useState('');
@@ -111,11 +112,25 @@ export default function ConfigDetailPage() {
     }
   }
 
+  async function handleClone() {
+    setCloning(true);
+    try {
+      const cloned = await api.configs.clone(id);
+      toast.success(`Nova versão v${cloned.version} criada como rascunho`);
+      router.push(`/configs/${cloned.id}`);
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Erro ao clonar config');
+    } finally {
+      setCloning(false);
+    }
+  }
+
   if (loading) return <Loading />;
   if (!config) return <p className="text-gray-500">Config não encontrada.</p>;
 
   const isDraft = config.status === 'draft';
   const isPending = config.status === 'pending_approval';
+  const canClone = config.status === 'active' || config.status === 'approved';
 
   return (
     <div className="max-w-4xl">
@@ -126,6 +141,15 @@ export default function ConfigDetailPage() {
           <span className="text-sm text-gray-500">v{config.version}</span>
         </div>
         <div className="flex gap-2">
+          {canClone && (
+            <button
+              onClick={handleClone}
+              disabled={cloning}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {cloning ? 'Clonando...' : 'Nova Versão'}
+            </button>
+          )}
           {isDraft && !editing && (
             <>
               <button

@@ -152,6 +152,26 @@ func (h *ConfigHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, cfg)
 }
 
+func (h *ConfigHandler) Clone(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid config ID")
+		return
+	}
+
+	userID := getUserID(r.Context())
+	ip := clientIP(r)
+	ua := r.UserAgent()
+
+	detail, err := h.configSvc.Clone(r.Context(), id, userID, ip, ua)
+	if err != nil {
+		respondDomainError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, detail)
+}
+
 func (h *ConfigHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

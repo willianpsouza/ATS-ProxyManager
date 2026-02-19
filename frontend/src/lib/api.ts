@@ -164,6 +164,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ reason }),
       }),
+    clone: (id: string) =>
+      fetchAPI<Config>(`/configs/${id}/clone`, { method: 'POST' }),
   },
 
   proxies: {

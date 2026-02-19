@@ -95,6 +95,21 @@ func (r *ConfigRepo) Create(ctx context.Context, c *domain.Config) error {
 	return nil
 }
 
+func (r *ConfigRepo) CreateWithVersion(ctx context.Context, c *domain.Config, version int) error {
+	err := r.db.QueryRow(ctx,
+		`INSERT INTO configs (name, description, status, version, created_by, modified_by)
+		 VALUES ($1, $2, $3, $4, $5, $5)
+		 RETURNING id, created_at, modified_at`,
+		c.Name, c.Description, domain.StatusDraft, version, c.CreatedBy,
+	).Scan(&c.ID, &c.CreatedAt, &c.ModifiedAt)
+	if err != nil {
+		return fmt.Errorf("create config with version: %w", err)
+	}
+	c.Status = domain.StatusDraft
+	c.Version = version
+	return nil
+}
+
 func (r *ConfigRepo) Update(ctx context.Context, c *domain.Config) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE configs SET name = $1, description = $2, modified_by = $3, modified_at = NOW()

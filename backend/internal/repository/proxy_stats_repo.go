@@ -68,6 +68,52 @@ func (r *ProxyStatsRepo) ListByProxy(ctx context.Context, proxyID uuid.UUID, lim
 	return stats, nil
 }
 
+func (r *ProxyStatsRepo) ListByProxyAggregated(ctx context.Context, proxyID uuid.UUID, limit int) ([]domain.ProxyStat, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT MIN(id::text)::uuid, proxy_id, date_trunc('minute', collected_at) AS minute,
+			MAX(active_connections)::int,
+			SUM(total_connections)::bigint,
+			SUM(cache_hits)::bigint,
+			SUM(cache_misses)::bigint,
+			SUM(errors)::int,
+			SUM(COALESCE(total_requests, 0))::bigint,
+			SUM(COALESCE(connect_requests, 0))::bigint,
+			SUM(COALESCE(responses_2xx, 0))::bigint,
+			SUM(COALESCE(responses_3xx, 0))::bigint,
+			SUM(COALESCE(responses_4xx, 0))::bigint,
+			SUM(COALESCE(responses_5xx, 0))::bigint,
+			SUM(COALESCE(err_connect_fail, 0))::int,
+			SUM(COALESCE(err_client_abort, 0))::int,
+			SUM(COALESCE(broken_server_conns, 0))::int,
+			SUM(COALESCE(bytes_in, 0))::bigint,
+			SUM(COALESCE(bytes_out, 0))::bigint
+		 FROM proxy_stats WHERE proxy_id = $1
+		 GROUP BY proxy_id, date_trunc('minute', collected_at)
+		 ORDER BY minute DESC LIMIT $2`, proxyID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy stats aggregated: %w", err)
+	}
+	defer rows.Close()
+
+	var stats []domain.ProxyStat
+	for rows.Next() {
+		var s domain.ProxyStat
+		if err := rows.Scan(
+			&s.ID, &s.ProxyID, &s.CollectedAt,
+			&s.ActiveConnections, &s.TotalConnections, &s.CacheHits, &s.CacheMisses, &s.Errors,
+			&s.TotalRequests, &s.ConnectRequests,
+			&s.Responses2xx, &s.Responses3xx, &s.Responses4xx, &s.Responses5xx,
+			&s.ErrConnectFail, &s.ErrClientAbort, &s.BrokenServerConns,
+			&s.BytesIn, &s.BytesOut,
+		); err != nil {
+			return nil, fmt.Errorf("scan proxy stat aggregated: %w", err)
+		}
+		stats = append(stats, s)
+	}
+	return stats, nil
+}
+
 // ProxyStatsSummary returns the most recent aggregated stats for a proxy (1 hour window).
 type ProxyStatsSummary struct {
 	ActiveConnections  int     `json:"active_connections"`

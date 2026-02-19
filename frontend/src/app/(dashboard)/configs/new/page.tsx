@@ -321,6 +321,15 @@ function Section({
   );
 }
 
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
 function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button

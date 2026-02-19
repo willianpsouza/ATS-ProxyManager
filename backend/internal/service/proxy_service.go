@@ -137,7 +137,7 @@ func (s *ProxyService) GetByID(ctx context.Context, id uuid.UUID) (*ProxyDetail,
 		detail.Stats = stats
 	}
 
-	history, err := s.proxyStats.ListByProxy(ctx, proxy.ID, 60)
+	history, err := s.proxyStats.ListByProxyAggregated(ctx, proxy.ID, 60)
 	if err == nil {
 		detail.StatsHistory = history
 	}

@@ -320,6 +320,112 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 	return result, nil
 }
 
+func (s *ConfigService) Clone(ctx context.Context, id, userID uuid.UUID, ip, ua string) (*ConfigDetail, error) {
+	var result *ConfigDetail
+
+	err := repository.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		txConfigs := repository.NewConfigRepo(tx)
+		txDomains := repository.NewDomainRuleRepo(tx)
+		txIPRanges := repository.NewIPRangeRuleRepo(tx)
+		txParents := repository.NewParentProxyRepo(tx)
+		txConfigProxy := repository.NewConfigProxyRepo(tx)
+		txAudit := repository.NewAuditRepo(tx)
+
+		// Load original config
+		original, err := txConfigs.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		// Create new config with incremented version
+		newCfg := &domain.Config{
+			Name:        original.Name,
+			Description: original.Description,
+			CreatedBy:   &userID,
+		}
+		if err := txConfigs.CreateWithVersion(ctx, newCfg, original.Version+1); err != nil {
+			return err
+		}
+
+		// Copy domain rules
+		origDomains, err := txDomains.ListByConfig(ctx, id)
+		if err != nil {
+			return err
+		}
+		domains := make([]domain.DomainRule, 0, len(origDomains))
+		for _, d := range origDomains {
+			dr := domain.DomainRule{ConfigID: newCfg.ID, Domain: d.Domain, Action: d.Action, Priority: d.Priority}
+			if err := txDomains.Create(ctx, &dr); err != nil {
+				return err
+			}
+			domains = append(domains, dr)
+		}
+
+		// Copy IP range rules
+		origIPRanges, err := txIPRanges.ListByConfig(ctx, id)
+		if err != nil {
+			return err
+		}
+		ipRanges := make([]domain.IPRangeRule, 0, len(origIPRanges))
+		for _, ir := range origIPRanges {
+			rule := domain.IPRangeRule{ConfigID: newCfg.ID, CIDR: ir.CIDR, Action: ir.Action, Priority: ir.Priority}
+			if err := txIPRanges.Create(ctx, &rule); err != nil {
+				return err
+			}
+			ipRanges = append(ipRanges, rule)
+		}
+
+		// Copy parent proxies
+		origParents, err := txParents.ListByConfig(ctx, id)
+		if err != nil {
+			return err
+		}
+		parents := make([]domain.ParentProxy, 0, len(origParents))
+		for _, pp := range origParents {
+			proxy := domain.ParentProxy{ConfigID: newCfg.ID, Address: pp.Address, Port: pp.Port, Priority: pp.Priority, Enabled: pp.Enabled}
+			if err := txParents.Create(ctx, &proxy); err != nil {
+				return err
+			}
+			parents = append(parents, proxy)
+		}
+
+		// Copy config_proxies assignments
+		origProxies, err := txConfigProxy.ListByConfig(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, p := range origProxies {
+			if err := txConfigProxy.Assign(ctx, newCfg.ID, p.ID, userID); err != nil {
+				return err
+			}
+		}
+
+		_ = txAudit.Create(ctx, &domain.AuditLog{
+			UserID:     &userID,
+			Action:     "config.clone",
+			EntityType: "config",
+			EntityID:   &newCfg.ID,
+			OldValue:   jsonVal("source_id", id.String()),
+			IPAddress:  &ip,
+			UserAgent:  &ua,
+		})
+
+		result = &ConfigDetail{
+			Config:        *newCfg,
+			Domains:       domains,
+			IPRanges:      ipRanges,
+			ParentProxies: parents,
+			Proxies:       origProxies,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func (s *ConfigService) Submit(ctx context.Context, id, userID uuid.UUID, ip, ua string) (*domain.Config, error) {
 	if err := s.configs.Submit(ctx, id, userID); err != nil {
 		return nil, err
