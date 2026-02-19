@@ -24,7 +24,7 @@ Proxy interno centralizado usando **Apache Traffic Server 10.x** que roteia auto
 |---------|------|
 | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` | DIRECT |
 | `198.18.0.0/16` | DIRECT |
-| `*.eec`, `*.eeca`, `*.eeco` | DIRECT |
+| `*.provengo.local`, `*.provengo.dev`, `*.provengo.test` | DIRECT |
 | `*.svc.cluster.local`, `*.cluster.local` | DIRECT |
 | **Todo o resto** | PARENT (proxy corporativo) |
 

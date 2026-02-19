@@ -84,7 +84,7 @@ CREATE INDEX idx_configs_name ON configs(name);
 CREATE TABLE domain_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     config_id UUID NOT NULL REFERENCES configs(id) ON DELETE CASCADE,
-    domain VARCHAR(255) NOT NULL,  -- Ex: .eec, .eeca, .svc.cluster.local
+    domain VARCHAR(255) NOT NULL,  -- Ex: .provengo.local, .provengo.dev, .svc.cluster.local
     action rule_action NOT NULL DEFAULT 'direct',
     priority INTEGER NOT NULL DEFAULT 100,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

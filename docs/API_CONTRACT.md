@@ -240,13 +240,13 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
   "domains": [
     {
       "id": "uuid",
-      "domain": ".eec",
+      "domain": ".provengo.local",
       "action": "direct",
       "priority": 10
     },
     {
       "id": "uuid",
-      "domain": ".eeca",
+      "domain": ".provengo.dev",
       "action": "direct",
       "priority": 20
     }
@@ -305,8 +305,8 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
   "description": "Descrição da config",
   
   "domains": [
-    {"domain": ".eec", "action": "direct", "priority": 10},
-    {"domain": ".eeca", "action": "direct", "priority": 20}
+    {"domain": ".provengo.local", "action": "direct", "priority": 10},
+    {"domain": ".provengo.dev", "action": "direct", "priority": 20}
   ],
   
   "ip_ranges": [
@@ -512,7 +512,7 @@ Retorna logs capturados.
     {
       "timestamp": "2025-02-03T22:00:01Z",
       "level": "INFO",
-      "message": "Result for api.eeca was PARENT_DIRECT"
+      "message": "Result for api.provengo.dev was PARENT_DIRECT"
     }
   ]
 }
@@ -558,7 +558,7 @@ Registra novo proxy no backend.
   "hash": "newhash123",
   "config": {
     "parent_config": "dest_ip=10.0.0.0-10.255.255.255 go_direct=true\n...",
-    "sni_yaml": "sni:\n  - fqdn: '*.eec'\n    tunnel_route: direct\n...",
+    "sni_yaml": "sni:\n  - fqdn: '*.provengo.local'\n    tunnel_route: direct\n...",
     "ip_allow_yaml": "..."
   },
   "capture_logs": false
@@ -645,7 +645,7 @@ Envia logs capturados.
     {
       "timestamp": "2025-02-03T22:00:01Z",
       "level": "INFO",
-      "message": "Result for api.eeca was PARENT_DIRECT"
+      "message": "Result for api.provengo.dev was PARENT_DIRECT"
     }
   ]
 }

@@ -186,10 +186,17 @@ func (r *ConfigRepo) GetActiveForProxy(ctx context.Context, hostname string) (*d
 	return &c, nil
 }
 
-// DeactivateOthers sets all other active configs to 'approved' when a new config becomes active.
+// DeactivateOthers sets other active configs that share proxies with the given config to 'approved'.
 func (r *ConfigRepo) DeactivateOthers(ctx context.Context, activeID uuid.UUID) error {
 	_, err := r.db.Exec(ctx,
-		`UPDATE configs SET status = 'approved' WHERE status = 'active' AND id != $1`,
+		`UPDATE configs SET status = 'approved'
+		 WHERE status = 'active' AND id != $1
+		   AND id IN (
+		     SELECT cp2.config_id FROM config_proxies cp2
+		     WHERE cp2.proxy_id IN (
+		       SELECT cp1.proxy_id FROM config_proxies cp1 WHERE cp1.config_id = $1
+		     )
+		   )`,
 		activeID,
 	)
 	return err

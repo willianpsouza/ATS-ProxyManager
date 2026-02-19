@@ -79,11 +79,9 @@ func (s *ProxyService) List(ctx context.Context) (*ProxyListResponse, error) {
 			CurrentConfigHash: p.CurrentConfigHash,
 		}
 
-		if p.ConfigID != nil {
-			cfg, err := s.configs.GetByID(ctx, *p.ConfigID)
-			if err == nil {
-				item.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
-			}
+		cfg, err := s.configs.GetActiveForProxy(ctx, p.Hostname)
+		if err == nil {
+			item.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
 		}
 
 		stats, err := s.proxyStats.SummaryForProxy(ctx, p.ID)
@@ -129,11 +127,9 @@ func (s *ProxyService) GetByID(ctx context.Context, id uuid.UUID) (*ProxyDetail,
 		},
 	}
 
-	if proxy.ConfigID != nil {
-		cfg, err := s.configs.GetByID(ctx, *proxy.ConfigID)
-		if err == nil {
-			detail.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
-		}
+	cfg, err := s.configs.GetActiveForProxy(ctx, proxy.Hostname)
+	if err == nil {
+		detail.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
 	}
 
 	stats, err := s.proxyStats.SummaryForProxy(ctx, proxy.ID)
