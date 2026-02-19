@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/idf-experian/idf-proxy-helper/internal/ats"
-	"github.com/idf-experian/idf-proxy-helper/internal/config"
-	"github.com/idf-experian/idf-proxy-helper/internal/sync"
+	"github.com/ats-proxy/proxy-helper/internal/ats"
+	"github.com/ats-proxy/proxy-helper/internal/config"
+	"github.com/ats-proxy/proxy-helper/internal/sync"
 )
 
 var (
@@ -33,7 +33,7 @@ func main() {
 
 	// Versão
 	if *showVersion {
-		log.Printf("idf-proxy-helper version %s (commit: %s)\n", version, commit)
+		log.Printf("proxy-helper version %s (commit: %s)\n", version, commit)
 		os.Exit(0)
 	}
 
@@ -64,7 +64,7 @@ func main() {
 		LogLevel:     *logLevel,
 	}
 
-	log.Printf("Iniciando idf-proxy-helper v%s", version)
+	log.Printf("Iniciando proxy-helper v%s", version)
 	log.Printf("Backend: %s", cfg.BackendURL)
 	log.Printf("Config ID: %s", cfg.ConfigID)
 	log.Printf("Hostname: %s", cfg.Hostname)

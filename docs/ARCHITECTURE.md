@@ -1,4 +1,4 @@
-# IDF Proxy Manager - Documento de Arquitetura
+# ATS Proxy Manager - Documento de Arquitetura
 
 **Versão**: 1.0  
 **Data**: Fevereiro 2025  
@@ -8,7 +8,7 @@
 
 ## 1. Visão Geral
 
-Sistema de gerenciamento centralizado para configurações dos proxies IDF Local Proxy, composto por:
+Sistema de gerenciamento centralizado para configurações dos proxies ATS Local Proxy, composto por:
 
 | Componente | Tecnologia | Função |
 |------------|------------|--------|
@@ -423,7 +423,7 @@ flowchart LR
 ### 7.1 Estrutura do Projeto
 
 ```
-idf-proxy-helper/
+proxy-helper/
 ├── cmd/
 │   └── helper/
 │       └── main.go
@@ -634,8 +634,8 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_DB: idf_proxy_manager
-      POSTGRES_USER: idf
+      POSTGRES_DB: proxymanager
+      POSTGRES_USER: proxymanager
       POSTGRES_PASSWORD: secret
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -644,7 +644,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgres://idf:secret@db:5432/idf_proxy_manager
+      DATABASE_URL: postgres://proxymanager:secret@db:5432/proxymanager
       JWT_SECRET: super-secret-key
     ports:
       - "8080:8080"

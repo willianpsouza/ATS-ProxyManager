@@ -1,4 +1,4 @@
-module github.com/idf-experian/idf-proxy-helper
+module github.com/ats-proxy/proxy-helper
 
 go 1.22
 

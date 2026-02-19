@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
+	stdsync "sync"
 	"time"
 
-	"github.com/idf-experian/idf-proxy-helper/internal/sync"
+	"github.com/ats-proxy/proxy-helper/internal/sync"
 )
 
 // Manager gerencia configuração e operações do ATS
@@ -23,7 +23,7 @@ type Manager struct {
 
 	// Para captura de logs
 	logBuffer []sync.LogLine
-	logMu     sync.Mutex
+	logMu     stdsync.Mutex
 }
 
 // NewManager cria um novo Manager

@@ -1,4 +1,4 @@
-# IDF Proxy Manager - API Contract
+# ATS Proxy Manager - API Contract
 
 **Versão**: 1.0  
 **Base URL**: `/api/v1`
@@ -21,7 +21,7 @@ Authorization: Bearer <jwt_token>
 **Request:**
 ```json
 {
-  "email": "admin@idf-experian.com",
+  "email": "admin@proxy-manager.local",
   "password": "secret123"
 }
 ```
@@ -34,7 +34,7 @@ Authorization: Bearer <jwt_token>
   "expires_in": 1800,
   "user": {
     "id": "uuid",
-    "email": "admin@idf-experian.com",
+    "email": "admin@proxy-manager.local",
     "username": "admin",
     "role": "admin"
   }
@@ -108,7 +108,7 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
     {
       "id": "uuid",
       "username": "admin",
-      "email": "admin@idf-experian.com",
+      "email": "admin@proxy-manager.local",
       "role": "admin",
       "created_at": "2025-02-01T10:00:00Z",
       "last_login": "2025-02-03T21:30:00Z"
@@ -133,7 +133,7 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
 ```json
 {
   "username": "newuser",
-  "email": "newuser@idf-experian.com",
+  "email": "newuser@proxy-manager.local",
   "password": "secret123",
   "role": "regular"
 }
@@ -149,7 +149,7 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
 {
   "id": "uuid",
   "username": "newuser",
-  "email": "newuser@idf-experian.com",
+  "email": "newuser@proxy-manager.local",
   "role": "regular",
   "created_at": "2025-02-03T22:00:00Z"
 }
@@ -163,7 +163,7 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
 ```json
 {
   "username": "updateduser",
-  "email": "updated@idf-experian.com",
+  "email": "updated@proxy-manager.local",
   "role": "admin"
 }
 ```
@@ -173,7 +173,7 @@ Keep-alive para manter sessão ativa. Chamar a cada 30 segundos.
 {
   "id": "uuid",
   "username": "updateduser",
-  "email": "updated@idf-experian.com",
+  "email": "updated@proxy-manager.local",
   "role": "admin",
   "updated_at": "2025-02-03T22:00:00Z"
 }

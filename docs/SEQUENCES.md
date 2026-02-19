@@ -1,4 +1,4 @@
-# IDF Proxy Manager - Fluxos de Sequência
+# ATS Proxy Manager - Fluxos de Sequência
 
 ## 1. Fluxo Completo: Criar e Aprovar Configuração
 
@@ -176,7 +176,7 @@ sequenceDiagram
     autonumber
     
     participant App as 🔷 Aplicação
-    participant ATS as 🔶 idf_local_proxy
+    participant ATS as 🔶 local_proxy
     participant P1 as 🔒 Proxy Primário<br/>10.96.215.26:3128
     participant P2 as 🔒 Proxy Secundário<br/>10.253.16.93:3128
     participant Internet as ☁️ Internet

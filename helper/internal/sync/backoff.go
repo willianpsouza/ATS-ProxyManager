@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/idf-experian/idf-proxy-helper/internal/config"
+	"github.com/ats-proxy/proxy-helper/internal/config"
 )
 
 // Backoff implementa exponential backoff

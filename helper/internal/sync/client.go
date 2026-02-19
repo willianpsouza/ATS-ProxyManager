@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/idf-experian/idf-proxy-helper/internal/config"
+	"github.com/ats-proxy/proxy-helper/internal/config"
 )
 
 // Client gerencia comunicação com o backend
@@ -177,8 +177,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 // doRequestWithRetry executa uma requisição HTTP com retry e backoff
 func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, response interface{}) error {
-	var lastErr error
-
 	for {
 		err := c.doRequestInternal(ctx, method, path, body, response)
 		if err == nil {
@@ -187,7 +185,6 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 			return nil
 		}
 
-		lastErr = err
 		waitTime := c.backoff.Next()
 
 		log.Printf("Erro na requisição: %v. Retry em %s", err, waitTime)
@@ -219,7 +216,7 @@ func (c *Client) doRequestInternal(ctx context.Context, method, path string, bod
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "idf-proxy-helper/1.0")
+	req.Header.Set("User-Agent", "proxy-helper/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
