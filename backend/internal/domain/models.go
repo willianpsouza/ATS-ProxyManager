@@ -32,11 +32,12 @@ type Session struct {
 }
 
 type Config struct {
-	ID          uuid.UUID    `json:"id"`
-	Name        string       `json:"name"`
-	Description *string      `json:"description,omitempty"`
-	Status      ConfigStatus `json:"status"`
-	Version     int          `json:"version"`
+	ID            uuid.UUID    `json:"id"`
+	Name          string       `json:"name"`
+	Description   *string      `json:"description,omitempty"`
+	Status        ConfigStatus `json:"status"`
+	Version       int          `json:"version"`
+	DefaultAction RuleAction   `json:"default_action"`
 
 	CreatedBy   *uuid.UUID `json:"created_by,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`

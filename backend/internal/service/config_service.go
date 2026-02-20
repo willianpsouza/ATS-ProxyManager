@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -153,6 +154,7 @@ func (s *ConfigService) List(ctx context.Context, status *domain.ConfigStatus, p
 type CreateConfigRequest struct {
 	Name          string                    `json:"name"`
 	Description   *string                   `json:"description,omitempty"`
+	DefaultAction domain.RuleAction         `json:"default_action"`
 	Domains       []DomainRuleInput         `json:"domains"`
 	IPRanges      []IPRangeRuleInput        `json:"ip_ranges"`
 	ParentProxies []ParentProxyInput        `json:"parent_proxies"`
@@ -185,9 +187,132 @@ type ClientACLInput struct {
 	Priority int              `json:"priority"`
 }
 
+var domainPattern = regexp.MustCompile(`^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
+
+func validateRules(req CreateConfigRequest) error {
+	var errs []string
+
+	// Validate default_action
+	if req.DefaultAction == "" {
+		req.DefaultAction = domain.ActionDirect
+	}
+	if !req.DefaultAction.IsValid() {
+		errs = append(errs, fmt.Sprintf("default_action: '%s' is not valid, must be 'direct' or 'parent'", req.DefaultAction))
+	}
+
+	// Validate domain rules
+	for i, d := range req.Domains {
+		if d.Domain == "" {
+			errs = append(errs, fmt.Sprintf("domains[%d]: domain cannot be empty", i))
+			continue
+		}
+		if d.Domain == "*." || d.Domain == "*" {
+			errs = append(errs, fmt.Sprintf("domains[%d]: '%s' total wildcard is not allowed", i, d.Domain))
+			continue
+		}
+		if !domainPattern.MatchString(d.Domain) {
+			errs = append(errs, fmt.Sprintf("domains[%d]: '%s' is not a valid domain (use *.example.com or host.example.com)", i, d.Domain))
+		}
+		if !d.Action.IsValid() {
+			errs = append(errs, fmt.Sprintf("domains[%d]: action '%s' is not valid", i, d.Action))
+		}
+	}
+
+	// Validate IP range rules
+	for i, ir := range req.IPRanges {
+		if ir.CIDR == "" {
+			errs = append(errs, fmt.Sprintf("ip_ranges[%d]: CIDR cannot be empty", i))
+			continue
+		}
+		if err := validateCIDR(ir.CIDR, fmt.Sprintf("ip_ranges[%d]", i)); err != "" {
+			errs = append(errs, err)
+		}
+		if !ir.Action.IsValid() {
+			errs = append(errs, fmt.Sprintf("ip_ranges[%d]: action '%s' is not valid", i, ir.Action))
+		}
+	}
+
+	// Validate client ACL rules
+	for i, acl := range req.ClientACL {
+		if acl.CIDR == "" {
+			errs = append(errs, fmt.Sprintf("client_acl[%d]: CIDR cannot be empty", i))
+			continue
+		}
+		// Allow IPv6 in client ACL (e.g. ::1)
+		ip := net.ParseIP(acl.CIDR)
+		if ip != nil {
+			// Valid bare IP — check for 0.0.0.0
+			if acl.CIDR == "0.0.0.0" {
+				errs = append(errs, fmt.Sprintf("client_acl[%d]: 0.0.0.0 is not allowed", i))
+			}
+		} else {
+			_, ipnet, err := net.ParseCIDR(acl.CIDR)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("client_acl[%d]: '%s' is not a valid CIDR or IP address", i, acl.CIDR))
+			} else if ipnet.IP.To4() != nil && ipnet.IP.Equal(net.IPv4zero) {
+				errs = append(errs, fmt.Sprintf("client_acl[%d]: 0.0.0.0/%d is not allowed", i, maskSize(ipnet)))
+			}
+		}
+		if !acl.Action.IsValid() {
+			errs = append(errs, fmt.Sprintf("client_acl[%d]: action '%s' is not valid", i, acl.Action))
+		}
+	}
+
+	// Validate parent proxies
+	for i, pp := range req.ParentProxies {
+		if pp.Address == "" {
+			errs = append(errs, fmt.Sprintf("parent_proxies[%d]: address cannot be empty", i))
+		} else if net.ParseIP(pp.Address) == nil {
+			errs = append(errs, fmt.Sprintf("parent_proxies[%d]: '%s' is not a valid IP address", i, pp.Address))
+		}
+		if pp.Port < 1024 || pp.Port > 65535 {
+			errs = append(errs, fmt.Sprintf("parent_proxies[%d]: port %d is out of range (1024-65535)", i, pp.Port))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%w: %s", domain.ErrBadRequest, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func validateCIDR(cidr, prefix string) string {
+	ip := net.ParseIP(cidr)
+	if ip != nil {
+		// Bare IP is valid
+		if ip.To4() != nil && ip.Equal(net.IPv4zero) {
+			return fmt.Sprintf("%s: 0.0.0.0 is not allowed", prefix)
+		}
+		return ""
+	}
+
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return fmt.Sprintf("%s: '%s' is not a valid CIDR or IP address", prefix, cidr)
+	}
+	if ipnet.IP.To4() != nil && ipnet.IP.Equal(net.IPv4zero) {
+		return fmt.Sprintf("%s: 0.0.0.0/%d is not allowed", prefix, maskSize(ipnet))
+	}
+	return ""
+}
+
+func maskSize(ipnet *net.IPNet) int {
+	ones, _ := ipnet.Mask.Size()
+	return ones
+}
+
 func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, userID uuid.UUID, ip, ua string) (*ConfigDetail, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", domain.ErrBadRequest)
+	}
+
+	// Default default_action to "direct" if empty
+	if req.DefaultAction == "" {
+		req.DefaultAction = domain.ActionDirect
+	}
+
+	if err := validateRules(req); err != nil {
+		return nil, err
 	}
 
 	var result *ConfigDetail
@@ -202,9 +327,10 @@ func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, use
 		txAudit := repository.NewAuditRepo(tx)
 
 		cfg := &domain.Config{
-			Name:        req.Name,
-			Description: req.Description,
-			CreatedBy:   &userID,
+			Name:          req.Name,
+			Description:   req.Description,
+			DefaultAction: req.DefaultAction,
+			CreatedBy:     &userID,
 		}
 		if err := txConfigs.Create(ctx, cfg); err != nil {
 			return err
@@ -288,6 +414,15 @@ func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, use
 }
 
 func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConfigRequest, userID uuid.UUID, ip, ua string) (*ConfigDetail, error) {
+	// Default default_action to "direct" if empty
+	if req.DefaultAction == "" {
+		req.DefaultAction = domain.ActionDirect
+	}
+
+	if err := validateRules(req); err != nil {
+		return nil, err
+	}
+
 	var result *ConfigDetail
 
 	err := repository.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -309,6 +444,7 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 
 		cfg.Name = req.Name
 		cfg.Description = req.Description
+		cfg.DefaultAction = req.DefaultAction
 		cfg.ModifiedBy = &userID
 		if err := txConfigs.Update(ctx, cfg); err != nil {
 			return err
@@ -424,9 +560,10 @@ func (s *ConfigService) Clone(ctx context.Context, id, userID uuid.UUID, ip, ua 
 
 		// Create new config with incremented version
 		newCfg := &domain.Config{
-			Name:        original.Name,
-			Description: original.Description,
-			CreatedBy:   &userID,
+			Name:          original.Name,
+			Description:   original.Description,
+			DefaultAction: original.DefaultAction,
+			CreatedBy:     &userID,
 		}
 		if err := txConfigs.CreateWithVersion(ctx, newCfg, original.Version+1); err != nil {
 			return err
@@ -638,14 +775,19 @@ func (s *ConfigService) GenerateConfigFiles(ctx context.Context, configID uuid.U
 		return "", "", "", err
 	}
 
-	parentConfig = generateParentConfig(ipRanges, domains, parents)
+	cfg, cfgErr := s.configs.GetByID(ctx, configID)
+	if cfgErr != nil {
+		return "", "", "", cfgErr
+	}
+
+	parentConfig = generateParentConfig(ipRanges, domains, parents, cfg.DefaultAction)
 	sniYaml = generateSNIYaml(domains)
 	ipAllowYaml = generateIPAllowYaml(clientACL)
 
 	return parentConfig, sniYaml, ipAllowYaml, nil
 }
 
-func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.DomainRule, parentProxies []domain.ParentProxy) string {
+func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.DomainRule, parentProxies []domain.ParentProxy, defaultAction domain.RuleAction) string {
 	var b strings.Builder
 
 	// Sort by priority
@@ -653,11 +795,29 @@ func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.Do
 	sort.Slice(domainRules, func(i, j int) bool { return domainRules[i].Priority < domainRules[j].Priority })
 	sort.Slice(parentProxies, func(i, j int) bool { return parentProxies[i].Priority < parentProxies[j].Priority })
 
+	// Build parent list (needed for parent rules)
+	var enabled []domain.ParentProxy
+	for _, pp := range parentProxies {
+		if pp.Enabled {
+			enabled = append(enabled, pp)
+		}
+	}
+	var parentStr string
+	if len(enabled) > 0 {
+		var parentList []string
+		for _, pp := range enabled {
+			parentList = append(parentList, fmt.Sprintf("%s:%d", pp.Address, pp.Port))
+		}
+		parentStr = strings.Join(parentList, ";")
+	}
+
 	// IP range rules → dest_ip lines
 	for _, ir := range ipRanges {
+		ipRange := cidrToRange(ir.CIDR)
 		if ir.Action == domain.ActionDirect {
-			ipRange := cidrToRange(ir.CIDR)
 			b.WriteString(fmt.Sprintf("dest_ip=%s go_direct=true\n", ipRange))
+		} else if ir.Action == domain.ActionParent && parentStr != "" {
+			b.WriteString(fmt.Sprintf("dest_ip=%s parent=\"%s\" round_robin=strict go_direct=false\n", ipRange, parentStr))
 		}
 	}
 
@@ -665,25 +825,16 @@ func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.Do
 	for _, dr := range domainRules {
 		if dr.Action == domain.ActionDirect {
 			b.WriteString(fmt.Sprintf("dest_domain=%s go_direct=true\n", dr.Domain))
+		} else if dr.Action == domain.ActionParent && parentStr != "" {
+			b.WriteString(fmt.Sprintf("dest_domain=%s parent=\"%s\" round_robin=strict go_direct=false\n", dr.Domain, parentStr))
 		}
 	}
 
-	// Default rule: everything else goes through parent proxies
-	if len(parentProxies) > 0 {
-		var enabled []domain.ParentProxy
-		for _, pp := range parentProxies {
-			if pp.Enabled {
-				enabled = append(enabled, pp)
-			}
-		}
-		if len(enabled) > 0 {
-			var parentList []string
-			for _, pp := range enabled {
-				parentList = append(parentList, fmt.Sprintf("%s:%d", pp.Address, pp.Port))
-			}
-			b.WriteString(fmt.Sprintf("dest_domain=. parent=\"%s\" round_robin=strict\n",
-				strings.Join(parentList, ";")))
-		}
+	// Default rule based on default_action
+	if defaultAction == domain.ActionParent && parentStr != "" {
+		b.WriteString(fmt.Sprintf("dest_domain=. parent=\"%s\" round_robin=strict go_direct=false\n", parentStr))
+	} else {
+		b.WriteString("dest_domain=. go_direct=true\n")
 	}
 
 	return b.String()

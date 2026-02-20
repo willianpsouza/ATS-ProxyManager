@@ -235,6 +235,7 @@ func bootstrapExistingDB(ctx context.Context, pool *pgxpool.Pool, migrations []m
 		{2, func() (bool, error) { return columnExists(ctx, pool, "proxy_stats", "total_requests") }},
 		{3, func() (bool, error) { return tableExists(ctx, pool, "client_acl_rules") }},
 		{4, func() (bool, error) { return columnExists(ctx, pool, "proxies", "registered_ip") }},
+		{5, func() (bool, error) { return columnExists(ctx, pool, "configs", "default_action") }},
 	}
 
 	// Build a filename lookup from loaded migrations

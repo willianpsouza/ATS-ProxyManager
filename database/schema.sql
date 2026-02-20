@@ -70,7 +70,10 @@ CREATE TABLE configs (
     approved_at TIMESTAMP WITH TIME ZONE,
     
     -- Hash da config gerada (para sync)
-    config_hash VARCHAR(64)
+    config_hash VARCHAR(64),
+
+    -- Comportamento padrão para tráfego sem regra
+    default_action VARCHAR(20) NOT NULL DEFAULT 'direct'
 );
 
 -- Índices

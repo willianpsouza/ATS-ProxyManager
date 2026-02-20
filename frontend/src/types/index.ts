@@ -20,6 +20,7 @@ export interface Config {
   description?: string;
   status: ConfigStatus;
   version: number;
+  default_action: RuleAction;
   proxy_count?: number;
   domains?: DomainRule[];
   ip_ranges?: IPRangeRule[];
@@ -34,6 +35,12 @@ export interface Config {
   approved_by?: UserRef;
   approved_at?: string;
   config_hash?: string;
+}
+
+export interface ConfigPreview {
+  parent_config: string;
+  sni_yaml: string;
+  ip_allow_yaml: string;
 }
 
 export interface UserRef {

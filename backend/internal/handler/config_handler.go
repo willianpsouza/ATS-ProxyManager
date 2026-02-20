@@ -191,6 +191,26 @@ func (h *ConfigHandler) Clone(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, detail)
 }
 
+func (h *ConfigHandler) Preview(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid config ID")
+		return
+	}
+
+	parentConfig, sniYaml, ipAllowYaml, err := h.configSvc.GenerateConfigFiles(r.Context(), id)
+	if err != nil {
+		respondDomainError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"parent_config": parentConfig,
+		"sni_yaml":      sniYaml,
+		"ip_allow_yaml": ipAllowYaml,
+	})
+}
+
 func (h *ConfigHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

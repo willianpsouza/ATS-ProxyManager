@@ -4,13 +4,34 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
-import type { DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
+import type { RuleAction, DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
+
+const DOMAIN_RE = /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+
+function isValidDomain(d: string): boolean {
+  if (!d || d === '*.' || d === '*') return false;
+  return DOMAIN_RE.test(d);
+}
+
+function isValidCIDR(c: string): boolean {
+  if (!c) return false;
+  if (c === '0.0.0.0' || c.startsWith('0.0.0.0/')) return false;
+  return IPV4_RE.test(c) || CIDR_RE.test(c) || c === '::1' || c.includes(':');
+}
+
+function isValidIPv4(addr: string): boolean {
+  if (!addr) return false;
+  return IPV4_RE.test(addr);
+}
 
 export default function NewConfigPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [defaultAction, setDefaultAction] = useState<RuleAction>('direct');
   const [domains, setDomains] = useState<Omit<DomainRule, 'id'>[]>([]);
   const [ipRanges, setIpRanges] = useState<Omit<IPRangeRule, 'id'>[]>([]);
   const [parentProxies, setParentProxies] = useState<Omit<ParentProxy, 'id'>[]>([]);
@@ -100,6 +121,7 @@ export default function NewConfigPage() {
       const res = await api.configs.create({
         name: name.trim(),
         description: description.trim() || undefined,
+        default_action: defaultAction,
         domains,
         ip_ranges: ipRanges,
         parent_proxies: parentProxies,
@@ -141,6 +163,19 @@ export default function NewConfigPage() {
                 placeholder="Descrição opcional"
               />
             </Field>
+            <Field label="Comportamento Padrão">
+              <select
+                value={defaultAction}
+                onChange={(e) => setDefaultAction(e.target.value as RuleAction)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="direct">Direct Connect</option>
+                <option value="parent">Parent Proxy</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Define o que acontece com tráfego que não corresponde a nenhuma regra específica.
+              </p>
+            </Field>
           </div>
         </Section>
 
@@ -154,13 +189,18 @@ export default function NewConfigPage() {
           ) : (
             <div className="space-y-2">
               {domains.map((d, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={d.domain}
-                    onChange={(e) => updateDomain(i, 'domain', e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-1"
-                    placeholder=".example.com"
-                  />
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="flex-1">
+                    <input
+                      value={d.domain}
+                      onChange={(e) => updateDomain(i, 'domain', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${d.domain && !isValidDomain(d.domain) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      placeholder="*.example.com"
+                    />
+                    {d.domain && !isValidDomain(d.domain) && (
+                      <p className="text-xs text-red-500 mt-0.5">Formato inválido (use *.example.com ou host.example.com)</p>
+                    )}
+                  </div>
                   <select
                     value={d.action}
                     onChange={(e) => updateDomain(i, 'action', e.target.value)}
@@ -176,7 +216,7 @@ export default function NewConfigPage() {
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
                     placeholder="Prioridade"
                   />
-                  <button type="button" onClick={() => removeDomain(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
+                  <button type="button" onClick={() => removeDomain(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none mt-1">
                     &times;
                   </button>
                 </div>
@@ -195,13 +235,18 @@ export default function NewConfigPage() {
           ) : (
             <div className="space-y-2">
               {ipRanges.map((r, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={r.cidr}
-                    onChange={(e) => updateIpRange(i, 'cidr', e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-1"
-                    placeholder="10.0.0.0/8"
-                  />
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="flex-1">
+                    <input
+                      value={r.cidr}
+                      onChange={(e) => updateIpRange(i, 'cidr', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${r.cidr && !isValidCIDR(r.cidr) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      placeholder="10.0.0.0/8"
+                    />
+                    {r.cidr && !isValidCIDR(r.cidr) && (
+                      <p className="text-xs text-red-500 mt-0.5">CIDR/IP inválido ou 0.0.0.0 não permitido</p>
+                    )}
+                  </div>
                   <select
                     value={r.action}
                     onChange={(e) => updateIpRange(i, 'action', e.target.value)}
@@ -217,7 +262,7 @@ export default function NewConfigPage() {
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
                     placeholder="Prioridade"
                   />
-                  <button type="button" onClick={() => removeIpRange(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
+                  <button type="button" onClick={() => removeIpRange(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none mt-1">
                     &times;
                   </button>
                 </div>
@@ -236,20 +281,32 @@ export default function NewConfigPage() {
           ) : (
             <div className="space-y-2">
               {parentProxies.map((p, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={p.address}
-                    onChange={(e) => updateParentProxy(i, 'address', e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-1"
-                    placeholder="10.96.215.26"
-                  />
-                  <input
-                    type="number"
-                    value={p.port}
-                    onChange={(e) => updateParentProxy(i, 'port', parseInt(e.target.value) || 0)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
-                    placeholder="Porta"
-                  />
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="flex-1">
+                    <input
+                      value={p.address}
+                      onChange={(e) => updateParentProxy(i, 'address', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${p.address && !isValidIPv4(p.address) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      placeholder="10.96.215.26"
+                    />
+                    {p.address && !isValidIPv4(p.address) && (
+                      <p className="text-xs text-red-500 mt-0.5">Endereço IPv4 inválido</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      type="number"
+                      value={p.port}
+                      onChange={(e) => updateParentProxy(i, 'port', parseInt(e.target.value) || 0)}
+                      min={1024}
+                      max={65535}
+                      className={`w-24 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${p.port < 1024 || p.port > 65535 ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      placeholder="Porta"
+                    />
+                    {(p.port < 1024 || p.port > 65535) && (
+                      <p className="text-xs text-red-500 mt-0.5">1024-65535</p>
+                    )}
+                  </div>
                   <input
                     type="number"
                     value={p.priority}
@@ -257,7 +314,7 @@ export default function NewConfigPage() {
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
                     placeholder="Prioridade"
                   />
-                  <label className="flex items-center gap-1 text-sm text-gray-600 whitespace-nowrap">
+                  <label className="flex items-center gap-1 text-sm text-gray-600 whitespace-nowrap mt-2">
                     <input
                       type="checkbox"
                       checked={p.enabled}
@@ -266,7 +323,7 @@ export default function NewConfigPage() {
                     />
                     Ativo
                   </label>
-                  <button type="button" onClick={() => removeParentProxy(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
+                  <button type="button" onClick={() => removeParentProxy(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none mt-1">
                     &times;
                   </button>
                 </div>
@@ -285,13 +342,18 @@ export default function NewConfigPage() {
           ) : (
             <div className="space-y-2">
               {clientACL.map((acl, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={acl.cidr}
-                    onChange={(e) => updateClientACL(i, 'cidr', e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-1"
-                    placeholder="10.0.0.0/8"
-                  />
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="flex-1">
+                    <input
+                      value={acl.cidr}
+                      onChange={(e) => updateClientACL(i, 'cidr', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${acl.cidr && !isValidCIDR(acl.cidr) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      placeholder="10.0.0.0/8"
+                    />
+                    {acl.cidr && !isValidCIDR(acl.cidr) && (
+                      <p className="text-xs text-red-500 mt-0.5">CIDR/IP inválido ou 0.0.0.0 não permitido</p>
+                    )}
+                  </div>
                   <select
                     value={acl.action}
                     onChange={(e) => updateClientACL(i, 'action', e.target.value)}
@@ -307,7 +369,7 @@ export default function NewConfigPage() {
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
                     placeholder="Prioridade"
                   />
-                  <button type="button" onClick={() => removeClientACL(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
+                  <button type="button" onClick={() => removeClientACL(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none mt-1">
                     &times;
                   </button>
                 </div>

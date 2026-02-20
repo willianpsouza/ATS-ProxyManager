@@ -4,11 +4,31 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
-import type { Config, DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
+import type { Config, ConfigPreview, RuleAction, DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
 import { StatusBadge } from '@/components/status-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Loading } from '@/components/loading';
 import { formatDate } from '@/lib/utils';
+
+const DOMAIN_RE = /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+
+function isValidDomain(d: string): boolean {
+  if (!d || d === '*.' || d === '*') return false;
+  return DOMAIN_RE.test(d);
+}
+
+function isValidCIDR(c: string): boolean {
+  if (!c) return false;
+  if (c === '0.0.0.0' || c.startsWith('0.0.0.0/')) return false;
+  return IPV4_RE.test(c) || CIDR_RE.test(c) || c === '::1' || c.includes(':');
+}
+
+function isValidIPv4(addr: string): boolean {
+  if (!addr) return false;
+  return IPV4_RE.test(addr);
+}
 
 export default function ConfigDetailPage() {
   const params = useParams();
@@ -26,6 +46,7 @@ export default function ConfigDetailPage() {
   // Edit state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [defaultAction, setDefaultAction] = useState<RuleAction>('direct');
   const [domains, setDomains] = useState<Omit<DomainRule, 'id'>[]>([]);
   const [ipRanges, setIpRanges] = useState<Omit<IPRangeRule, 'id'>[]>([]);
   const [parentProxies, setParentProxies] = useState<Omit<ParentProxy, 'id'>[]>([]);
@@ -39,6 +60,7 @@ export default function ConfigDetailPage() {
       setConfig(data);
       setName(data.name);
       setDescription(data.description || '');
+      setDefaultAction(data.default_action || 'direct');
       setDomains(
         (data.domains || []).map((d) => ({ domain: d.domain, action: d.action, priority: d.priority }))
       );
@@ -75,6 +97,7 @@ export default function ConfigDetailPage() {
       await api.configs.update(id, {
         name: name.trim(),
         description: description.trim() || undefined,
+        default_action: defaultAction,
         domains,
         ip_ranges: ipRanges,
         parent_proxies: parentProxies,
@@ -210,6 +233,8 @@ export default function ConfigDetailPage() {
           setName={setName}
           description={description}
           setDescription={setDescription}
+          defaultAction={defaultAction}
+          setDefaultAction={setDefaultAction}
           domains={domains}
           setDomains={setDomains}
           ipRanges={ipRanges}
@@ -262,8 +287,40 @@ export default function ConfigDetailPage() {
 }
 
 function ReadOnlyView({ config }: { config: Config }) {
+  const [preview, setPreview] = useState<ConfigPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  async function loadPreview() {
+    if (preview) {
+      setPreviewOpen(!previewOpen);
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const data = await api.configs.preview(config.id);
+      setPreview(data);
+      setPreviewOpen(true);
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Erro ao carregar preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Default Action */}
+      <div className="bg-white rounded-lg border p-5">
+        <h2 className="text-base font-semibold text-gray-900 mb-3">Comportamento Padrão</h2>
+        <p className="text-sm text-gray-700">
+          Tráfego sem regra específica:{' '}
+          <span className="font-medium">
+            {config.default_action === 'parent' ? 'Parent Proxy' : 'Direct Connect'}
+          </span>
+        </p>
+      </div>
+
       {/* Domain Rules */}
       <div className="bg-white rounded-lg border p-5">
         <h2 className="text-base font-semibold text-gray-900 mb-3">Regras de Domínio</h2>
@@ -401,6 +458,45 @@ function ReadOnlyView({ config }: { config: Config }) {
           </div>
         )}
       </div>
+
+      {/* Config File Preview */}
+      <div className="bg-white rounded-lg border p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold text-gray-900">Preview dos Arquivos</h2>
+          <button
+            onClick={loadPreview}
+            disabled={previewLoading}
+            className="px-3 py-1 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors disabled:opacity-50"
+          >
+            {previewLoading ? 'Carregando...' : previewOpen ? 'Ocultar' : 'Visualizar'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          Mostra como os arquivos de configuração seriam gerados para o ATS.
+        </p>
+        {previewOpen && preview && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">parent.config</h3>
+              <pre className="bg-gray-900 text-green-400 text-xs p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                {preview.parent_config || '(vazio)'}
+              </pre>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">sni.yaml</h3>
+              <pre className="bg-gray-900 text-green-400 text-xs p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                {preview.sni_yaml || '(vazio)'}
+              </pre>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">ip_allow.yaml</h3>
+              <pre className="bg-gray-900 text-green-400 text-xs p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                {preview.ip_allow_yaml || '(vazio)'}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -408,6 +504,7 @@ function ReadOnlyView({ config }: { config: Config }) {
 function EditForm({
   name, setName,
   description, setDescription,
+  defaultAction, setDefaultAction,
   domains, setDomains,
   ipRanges, setIpRanges,
   parentProxies, setParentProxies,
@@ -418,6 +515,7 @@ function EditForm({
 }: {
   name: string; setName: (v: string) => void;
   description: string; setDescription: (v: string) => void;
+  defaultAction: RuleAction; setDefaultAction: (v: RuleAction) => void;
   domains: Omit<DomainRule, 'id'>[]; setDomains: (v: Omit<DomainRule, 'id'>[]) => void;
   ipRanges: Omit<IPRangeRule, 'id'>[]; setIpRanges: (v: Omit<IPRangeRule, 'id'>[]) => void;
   parentProxies: Omit<ParentProxy, 'id'>[]; setParentProxies: (v: Omit<ParentProxy, 'id'>[]) => void;
@@ -447,6 +545,20 @@ function EditForm({
             rows={2}
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Comportamento Padrão</label>
+          <select
+            value={defaultAction}
+            onChange={(e) => setDefaultAction(e.target.value as RuleAction)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="direct">Direct Connect</option>
+            <option value="parent">Parent Proxy</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Define o que acontece com tráfego que não corresponde a nenhuma regra específica.
+          </p>
+        </div>
       </div>
 
       {/* Domain Rules */}
@@ -463,17 +575,22 @@ function EditForm({
         </div>
         <div className="space-y-2">
           {domains.map((d, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input
-                value={d.domain}
-                onChange={(e) => {
-                  const next = [...domains];
-                  next[i] = { ...next[i], domain: e.target.value };
-                  setDomains(next);
-                }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder=".example.com"
-              />
+            <div key={i} className="flex gap-2 items-start">
+              <div className="flex-1">
+                <input
+                  value={d.domain}
+                  onChange={(e) => {
+                    const next = [...domains];
+                    next[i] = { ...next[i], domain: e.target.value };
+                    setDomains(next);
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${d.domain && !isValidDomain(d.domain) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                  placeholder="*.example.com"
+                />
+                {d.domain && !isValidDomain(d.domain) && (
+                  <p className="text-xs text-red-500 mt-0.5">Formato inválido (use *.example.com ou host.example.com)</p>
+                )}
+              </div>
               <select
                 value={d.action}
                 onChange={(e) => {
@@ -498,7 +615,7 @@ function EditForm({
               />
               <button
                 onClick={() => setDomains(domains.filter((_, idx) => idx !== i))}
-                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
+                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg mt-1"
               >
                 &times;
               </button>
@@ -521,17 +638,22 @@ function EditForm({
         </div>
         <div className="space-y-2">
           {ipRanges.map((r, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input
-                value={r.cidr}
-                onChange={(e) => {
-                  const next = [...ipRanges];
-                  next[i] = { ...next[i], cidr: e.target.value };
-                  setIpRanges(next);
-                }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="10.0.0.0/8"
-              />
+            <div key={i} className="flex gap-2 items-start">
+              <div className="flex-1">
+                <input
+                  value={r.cidr}
+                  onChange={(e) => {
+                    const next = [...ipRanges];
+                    next[i] = { ...next[i], cidr: e.target.value };
+                    setIpRanges(next);
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${r.cidr && !isValidCIDR(r.cidr) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                  placeholder="10.0.0.0/8"
+                />
+                {r.cidr && !isValidCIDR(r.cidr) && (
+                  <p className="text-xs text-red-500 mt-0.5">CIDR/IP inválido ou 0.0.0.0 não permitido</p>
+                )}
+              </div>
               <select
                 value={r.action}
                 onChange={(e) => {
@@ -556,7 +678,7 @@ function EditForm({
               />
               <button
                 onClick={() => setIpRanges(ipRanges.filter((_, idx) => idx !== i))}
-                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
+                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg mt-1"
               >
                 &times;
               </button>
@@ -584,27 +706,39 @@ function EditForm({
         </div>
         <div className="space-y-2">
           {parentProxies.map((p, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input
-                value={p.address}
-                onChange={(e) => {
-                  const next = [...parentProxies];
-                  next[i] = { ...next[i], address: e.target.value };
-                  setParentProxies(next);
-                }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="10.96.215.26"
-              />
-              <input
-                type="number"
-                value={p.port}
-                onChange={(e) => {
-                  const next = [...parentProxies];
-                  next[i] = { ...next[i], port: parseInt(e.target.value) || 0 };
-                  setParentProxies(next);
-                }}
-                className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm"
-              />
+            <div key={i} className="flex gap-2 items-start">
+              <div className="flex-1">
+                <input
+                  value={p.address}
+                  onChange={(e) => {
+                    const next = [...parentProxies];
+                    next[i] = { ...next[i], address: e.target.value };
+                    setParentProxies(next);
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${p.address && !isValidIPv4(p.address) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                  placeholder="10.96.215.26"
+                />
+                {p.address && !isValidIPv4(p.address) && (
+                  <p className="text-xs text-red-500 mt-0.5">Endereço IPv4 inválido</p>
+                )}
+              </div>
+              <div>
+                <input
+                  type="number"
+                  value={p.port}
+                  onChange={(e) => {
+                    const next = [...parentProxies];
+                    next[i] = { ...next[i], port: parseInt(e.target.value) || 0 };
+                    setParentProxies(next);
+                  }}
+                  min={1024}
+                  max={65535}
+                  className={`w-24 px-3 py-2 border rounded-md text-sm ${p.port < 1024 || p.port > 65535 ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                />
+                {(p.port < 1024 || p.port > 65535) && (
+                  <p className="text-xs text-red-500 mt-0.5">1024-65535</p>
+                )}
+              </div>
               <input
                 type="number"
                 value={p.priority}
@@ -615,7 +749,7 @@ function EditForm({
                 }}
                 className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
-              <label className="flex items-center gap-1 text-sm whitespace-nowrap">
+              <label className="flex items-center gap-1 text-sm whitespace-nowrap mt-2">
                 <input
                   type="checkbox"
                   checked={p.enabled}
@@ -630,7 +764,7 @@ function EditForm({
               </label>
               <button
                 onClick={() => setParentProxies(parentProxies.filter((_, idx) => idx !== i))}
-                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
+                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg mt-1"
               >
                 &times;
               </button>
@@ -658,17 +792,22 @@ function EditForm({
         </div>
         <div className="space-y-2">
           {clientACL.map((acl, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input
-                value={acl.cidr}
-                onChange={(e) => {
-                  const next = [...clientACL];
-                  next[i] = { ...next[i], cidr: e.target.value };
-                  setClientACL(next);
-                }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="10.0.0.0/8"
-              />
+            <div key={i} className="flex gap-2 items-start">
+              <div className="flex-1">
+                <input
+                  value={acl.cidr}
+                  onChange={(e) => {
+                    const next = [...clientACL];
+                    next[i] = { ...next[i], cidr: e.target.value };
+                    setClientACL(next);
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${acl.cidr && !isValidCIDR(acl.cidr) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                  placeholder="10.0.0.0/8"
+                />
+                {acl.cidr && !isValidCIDR(acl.cidr) && (
+                  <p className="text-xs text-red-500 mt-0.5">CIDR/IP inválido ou 0.0.0.0 não permitido</p>
+                )}
+              </div>
               <select
                 value={acl.action}
                 onChange={(e) => {
@@ -693,7 +832,7 @@ function EditForm({
               />
               <button
                 onClick={() => setClientACL(clientACL.filter((_, idx) => idx !== i))}
-                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
+                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg mt-1"
               >
                 &times;
               </button>

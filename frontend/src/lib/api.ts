@@ -4,6 +4,7 @@ import type {
   RefreshResponse,
   PaginatedResponse,
   Config,
+  ConfigPreview,
   User,
   Proxy,
   ProxiesListResponse,
@@ -139,6 +140,7 @@ export const api = {
     create: (data: {
       name: string;
       description?: string;
+      default_action: string;
       domains: { domain: string; action: string; priority: number }[];
       ip_ranges: { cidr: string; action: string; priority: number }[];
       parent_proxies: { address: string; port: number; priority: number; enabled: boolean }[];
@@ -150,6 +152,7 @@ export const api = {
       data: {
         name: string;
         description?: string;
+        default_action: string;
         domains: { domain: string; action: string; priority: number }[];
         ip_ranges: { cidr: string; action: string; priority: number }[];
         parent_proxies: { address: string; port: number; priority: number; enabled: boolean }[];
@@ -170,6 +173,8 @@ export const api = {
       fetchAPI<Config>(`/configs/${id}/clone`, { method: 'POST' }),
     delete: (id: string) =>
       fetchAPI<void>(`/configs/${id}`, { method: 'DELETE' }),
+    preview: (id: string) =>
+      fetchAPI<ConfigPreview>(`/configs/${id}/preview`),
   },
 
   proxies: {

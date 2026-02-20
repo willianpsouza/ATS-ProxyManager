@@ -105,6 +105,7 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 				r.Post("/{id}/approve", configH.Approve)
 				r.Post("/{id}/reject", configH.Reject)
 				r.Post("/{id}/clone", configH.Clone)
+				r.Get("/{id}/preview", configH.Preview)
 			})
 
 			// Proxies
