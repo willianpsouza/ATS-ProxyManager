@@ -71,7 +71,7 @@ export interface ProxySummary {
 export interface Proxy {
   id: string;
   hostname: string;
-  config?: { id: string; name: string };
+  config?: { id: string; name: string; version: number; config_hash?: string; in_sync: boolean };
   is_online: boolean;
   last_seen?: string;
   registered_at: string;

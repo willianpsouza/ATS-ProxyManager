@@ -8,12 +8,15 @@ import type { Proxy, ApiError } from '@/types';
 import { StatusBadge } from '@/components/status-badge';
 import { EmptyState } from '@/components/empty-state';
 import { TableSkeleton } from '@/components/loading';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { formatRelative, formatBytes } from '@/lib/utils';
 
 export default function ProxiesPage() {
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [summary, setSummary] = useState({ total: 0, online: 0, offline: 0 });
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Proxy | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -31,6 +34,26 @@ export default function ProxiesPage() {
     const interval = setInterval(load, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.proxies.delete(deleteTarget.id);
+      setProxies((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      setSummary((prev) => ({
+        total: prev.total - 1,
+        online: deleteTarget.is_online ? prev.online - 1 : prev.online,
+        offline: deleteTarget.is_online ? prev.offline : prev.offline - 1,
+      }));
+      toast.success(`Proxy ${deleteTarget.hostname} removido`);
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Erro ao remover proxy');
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  }
 
   return (
     <div>
@@ -71,6 +94,7 @@ export default function ProxiesPage() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Tráfego (1h)</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Cache Hit</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Último Sinal</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -91,9 +115,17 @@ export default function ProxiesPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {proxy.config ? (
-                        <Link href={`/configs/${proxy.config.id}`} className="text-blue-600 hover:underline">
-                          {proxy.config.name}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link href={`/configs/${proxy.config.id}`} className="text-blue-600 hover:underline">
+                            {proxy.config.name}
+                          </Link>
+                          <span className="text-xs text-gray-400">v{proxy.config.version}</span>
+                          {proxy.config.in_sync ? (
+                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full" title="Sincronizado" />
+                          ) : (
+                            <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" title="Aguardando sync" />
+                          )}
+                        </div>
                       ) : (
                         '-'
                       )}
@@ -121,6 +153,17 @@ export default function ProxiesPage() {
                         : '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{formatRelative(proxy.last_seen)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {!proxy.is_online && (
+                        <button
+                          onClick={() => setDeleteTarget(proxy)}
+                          className="text-red-600 hover:text-red-800 text-xs font-medium"
+                          title="Remover proxy"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -128,6 +171,16 @@ export default function ProxiesPage() {
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Remover proxy"
+        message={`Tem certeza que deseja remover o proxy "${deleteTarget?.hostname}"? Estatísticas e logs associados também serão removidos.`}
+        confirmLabel={deleting ? 'Removendo...' : 'Remover'}
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

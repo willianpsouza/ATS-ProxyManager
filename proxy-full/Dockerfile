@@ -25,7 +25,6 @@ COPY proxy-full/ats-config/logging.yaml /opt/etc/trafficserver/logging.yaml
 # Garante que diretórios de runtime existem
 RUN mkdir -p \
     /opt/var/log/trafficserver \
-    /opt/var/cache/trafficserver \
     /opt/var/run/trafficserver
 
 # Copia entrypoint

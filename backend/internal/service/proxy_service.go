@@ -11,11 +11,12 @@ import (
 )
 
 type ProxyService struct {
-	proxies    *repository.ProxyRepo
-	proxyStats *repository.ProxyStatsRepo
-	proxyLogs  *repository.ProxyLogsRepo
-	configs    *repository.ConfigRepo
-	audit      *repository.AuditRepo
+	proxies      *repository.ProxyRepo
+	proxyStats   *repository.ProxyStatsRepo
+	proxyLogs    *repository.ProxyLogsRepo
+	configs      *repository.ConfigRepo
+	configProxies *repository.ConfigProxyRepo
+	audit        *repository.AuditRepo
 }
 
 func NewProxyService(
@@ -23,14 +24,16 @@ func NewProxyService(
 	proxyStats *repository.ProxyStatsRepo,
 	proxyLogs *repository.ProxyLogsRepo,
 	configs *repository.ConfigRepo,
+	configProxies *repository.ConfigProxyRepo,
 	audit *repository.AuditRepo,
 ) *ProxyService {
 	return &ProxyService{
-		proxies:    proxies,
-		proxyStats: proxyStats,
-		proxyLogs:  proxyLogs,
-		configs:    configs,
-		audit:      audit,
+		proxies:       proxies,
+		proxyStats:    proxyStats,
+		proxyLogs:     proxyLogs,
+		configs:       configs,
+		configProxies: configProxies,
+		audit:         audit,
 	}
 }
 
@@ -46,8 +49,11 @@ type ProxyListItem struct {
 }
 
 type ProxyConfigRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Version    int    `json:"version"`
+	ConfigHash string `json:"config_hash,omitempty"`
+	InSync     bool   `json:"in_sync"`
 }
 
 type ProxyListResponse struct {
@@ -81,7 +87,7 @@ func (s *ProxyService) List(ctx context.Context) (*ProxyListResponse, error) {
 
 		cfg, err := s.configs.GetActiveForProxy(ctx, p.Hostname)
 		if err == nil {
-			item.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
+			item.Config = buildConfigRef(cfg, p.CurrentConfigHash)
 		}
 
 		stats, err := s.proxyStats.SummaryForProxy(ctx, p.ID)
@@ -129,7 +135,7 @@ func (s *ProxyService) GetByID(ctx context.Context, id uuid.UUID) (*ProxyDetail,
 
 	cfg, err := s.configs.GetActiveForProxy(ctx, proxy.Hostname)
 	if err == nil {
-		detail.Config = &ProxyConfigRef{ID: cfg.ID.String(), Name: cfg.Name}
+		detail.Config = buildConfigRef(cfg, proxy.CurrentConfigHash)
 	}
 
 	stats, err := s.proxyStats.SummaryForProxy(ctx, proxy.ID)
@@ -172,4 +178,85 @@ func (s *ProxyService) StartLogCapture(ctx context.Context, id uuid.UUID, durati
 
 func (s *ProxyService) GetLogs(ctx context.Context, id uuid.UUID) ([]domain.ProxyLog, error) {
 	return s.proxyLogs.ListByProxy(ctx, id)
+}
+
+func (s *ProxyService) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID, ip, ua string) error {
+	proxy, err := s.proxies.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err := s.proxies.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	_ = s.audit.Create(ctx, &domain.AuditLog{
+		UserID:     &userID,
+		Action:     "proxy.delete",
+		EntityType: "proxy",
+		EntityID:   &id,
+		IPAddress:  &ip,
+		UserAgent:  &ua,
+		OldValue:   []byte(fmt.Sprintf(`{"hostname":%q}`, proxy.Hostname)),
+	})
+
+	return nil
+}
+
+func buildConfigRef(cfg *domain.Config, proxyHash *string) *ProxyConfigRef {
+	ref := &ProxyConfigRef{
+		ID:      cfg.ID.String(),
+		Name:    cfg.Name,
+		Version: cfg.Version,
+	}
+	if cfg.ConfigHash != nil {
+		ref.ConfigHash = *cfg.ConfigHash
+		ref.InSync = proxyHash != nil && *proxyHash == *cfg.ConfigHash
+	}
+	return ref
+}
+
+func (s *ProxyService) AssignConfig(ctx context.Context, proxyID uuid.UUID, configID *uuid.UUID, userID uuid.UUID, ip, ua string) error {
+	proxy, err := s.proxies.GetByID(ctx, proxyID)
+	if err != nil {
+		return err
+	}
+
+	if configID != nil {
+		cfg, err := s.configs.GetByID(ctx, *configID)
+		if err != nil {
+			return err
+		}
+		if cfg.Status != domain.StatusActive {
+			return fmt.Errorf("%w: config must be active to assign", domain.ErrBadRequest)
+		}
+	}
+
+	if err := s.configProxies.DeleteByProxy(ctx, proxyID); err != nil {
+		return fmt.Errorf("remove old associations: %w", err)
+	}
+
+	if configID != nil {
+		if err := s.configProxies.Assign(ctx, *configID, proxyID, userID); err != nil {
+			return err
+		}
+	}
+
+	newVal := []byte(`{"config_id":null}`)
+	if configID != nil {
+		newVal = []byte(fmt.Sprintf(`{"config_id":%q}`, configID.String()))
+	}
+
+	_ = s.audit.Create(ctx, &domain.AuditLog{
+		UserID:     &userID,
+		Action:     "proxy.assign_config",
+		EntityType: "proxy",
+		EntityID:   &proxyID,
+		IPAddress:  &ip,
+		UserAgent:  &ua,
+		NewValue:   newVal,
+		OldValue:   []byte(fmt.Sprintf(`{"hostname":%q}`, proxy.Hostname)),
+	})
+
+	return nil
 }

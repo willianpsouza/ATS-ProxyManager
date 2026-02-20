@@ -102,6 +102,37 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*ConfigDetai
 	}, nil
 }
 
+func (s *ConfigService) Delete(ctx context.Context, id, userID uuid.UUID, ip, ua string) error {
+	cfg, err := s.configs.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if cfg.Status == domain.StatusActive {
+		return fmt.Errorf("%w: cannot delete an active config", domain.ErrBadRequest)
+	}
+
+	if cfg.ApprovedAt != nil {
+		return fmt.Errorf("%w: cannot delete a config that was previously activated", domain.ErrBadRequest)
+	}
+
+	if err := s.configs.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	_ = s.audit.Create(ctx, &domain.AuditLog{
+		UserID:     &userID,
+		Action:     "config.delete",
+		EntityType: "config",
+		EntityID:   &id,
+		IPAddress:  &ip,
+		UserAgent:  &ua,
+		OldValue:   []byte(fmt.Sprintf(`{"name":%q,"status":%q}`, cfg.Name, cfg.Status)),
+	})
+
+	return nil
+}
+
 func (s *ConfigService) List(ctx context.Context, status *domain.ConfigStatus, page, limit int) ([]domain.Config, int, error) {
 	offset := (page - 1) * limit
 	return s.configs.List(ctx, status, limit, offset)

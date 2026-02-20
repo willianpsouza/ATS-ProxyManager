@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { Pagination } from '@/components/pagination';
 import { EmptyState } from '@/components/empty-state';
 import { TableSkeleton } from '@/components/loading';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { formatDate } from '@/lib/utils';
 
 const statusFilters: { label: string; value: string }[] = [
@@ -23,6 +24,8 @@ export default function ConfigsPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, total_pages: 0 });
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Config | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load(page = 1) {
     setLoading(true);
@@ -44,6 +47,25 @@ export default function ConfigsPage() {
     load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.configs.delete(deleteTarget.id);
+      setConfigs((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      toast.success(`Config "${deleteTarget.name}" removida`);
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Erro ao remover config');
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  }
+
+  function canDelete(config: Config): boolean {
+    return config.status === 'draft' || config.status === 'pending_approval';
+  }
 
   return (
     <div>
@@ -100,6 +122,7 @@ export default function ConfigsPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Proxies</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Modificado</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Por</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -117,6 +140,16 @@ export default function ConfigsPage() {
                     <td className="px-4 py-3 text-gray-600">{config.proxy_count ?? 0}</td>
                     <td className="px-4 py-3 text-gray-600">{formatDate(config.modified_at)}</td>
                     <td className="px-4 py-3 text-gray-600">{config.modified_by?.username || '-'}</td>
+                    <td className="px-4 py-3 text-right">
+                      {canDelete(config) && (
+                        <button
+                          onClick={() => setDeleteTarget(config)}
+                          className="text-red-600 hover:text-red-800 text-xs font-medium"
+                        >
+                          Apagar
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -125,6 +158,16 @@ export default function ConfigsPage() {
           <Pagination pagination={pagination} onPageChange={load} />
         </>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Apagar configuração"
+        message={`Tem certeza que deseja apagar a config "${deleteTarget?.name}"? Esta ação não pode ser desfeita.`}
+        confirmLabel={deleting ? 'Apagando...' : 'Apagar'}
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

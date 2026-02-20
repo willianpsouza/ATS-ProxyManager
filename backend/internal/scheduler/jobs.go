@@ -23,6 +23,7 @@ func New(pool *pgxpool.Pool) *Scheduler {
 
 func (s *Scheduler) Start() {
 	go s.runProxyStatusCheck()
+	go s.runProxyCleanup()
 	go s.runLogCleanup()
 	go s.runStatsCleanup()
 	log.Println("Scheduler started")
@@ -47,6 +48,29 @@ func (s *Scheduler) runProxyStatusCheck() {
 			repo := repository.NewProxyRepo(s.pool)
 			if err := repo.MarkOfflineStale(ctx); err != nil {
 				log.Printf("Proxy status check error: %v", err)
+			}
+			cancel()
+		}
+	}
+}
+
+// runProxyCleanup deletes proxies that have been offline for more than 4 hours, every 30 minutes.
+func (s *Scheduler) runProxyCleanup() {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			repo := repository.NewProxyRepo(s.pool)
+			count, err := repo.DeleteOfflineStale(ctx)
+			if err != nil {
+				log.Printf("Proxy cleanup error: %v", err)
+			} else if count > 0 {
+				log.Printf("Proxy cleanup: removed %d proxies", count)
 			}
 			cancel()
 		}

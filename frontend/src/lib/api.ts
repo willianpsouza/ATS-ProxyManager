@@ -166,6 +166,8 @@ export const api = {
       }),
     clone: (id: string) =>
       fetchAPI<Config>(`/configs/${id}/clone`, { method: 'POST' }),
+    delete: (id: string) =>
+      fetchAPI<void>(`/configs/${id}`, { method: 'DELETE' }),
   },
 
   proxies: {
@@ -177,6 +179,12 @@ export const api = {
         body: JSON.stringify({ duration_minutes: durationMinutes }),
       }),
     getLogs: (id: string) => fetchAPI<ProxyLogs>(`/proxies/${id}/logs`),
+    delete: (id: string) => fetchAPI<void>(`/proxies/${id}`, { method: 'DELETE' }),
+    assignConfig: (id: string, configId: string | null) =>
+      fetchAPI<{ status: string }>(`/proxies/${id}/config`, {
+        method: 'PUT',
+        body: JSON.stringify({ config_id: configId }),
+      }),
   },
 
   audit: {

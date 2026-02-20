@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
-import type { Proxy, ProxyLogs, ApiError } from '@/types';
+import type { Proxy, ProxyLogs, Config, ApiError } from '@/types';
 import { StatusBadge } from '@/components/status-badge';
 import { Loading } from '@/components/loading';
 import { formatDate, formatRelative, formatBytes } from '@/lib/utils';
@@ -19,12 +19,20 @@ export default function ProxyDetailPage() {
   const [logs, setLogs] = useState<ProxyLogs | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [captureMinutes, setCaptureMinutes] = useState(1);
+  const [activeConfigs, setActiveConfigs] = useState<Config[]>([]);
+  const [selectedConfigId, setSelectedConfigId] = useState<string>('');
+  const [savingConfig, setSavingConfig] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const data = await api.proxies.get(id);
+      const [data, configsRes] = await Promise.all([
+        api.proxies.get(id),
+        api.configs.list({ status: 'active', limit: 100 }),
+      ]);
       setProxy(data);
+      setActiveConfigs(configsRes.data);
+      setSelectedConfigId(data.config?.id ?? '');
     } catch (err) {
       toast.error((err as ApiError).message || 'Erro ao carregar proxy');
     } finally {
@@ -40,6 +48,19 @@ export default function ProxyDetailPage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [load]);
+
+  async function handleAssignConfig() {
+    setSavingConfig(true);
+    try {
+      await api.proxies.assignConfig(id, selectedConfigId || null);
+      toast.success('Config atualizada');
+      await load();
+    } catch (err) {
+      toast.error((err as ApiError).message || 'Erro ao atribuir config');
+    } finally {
+      setSavingConfig(false);
+    }
+  }
 
   async function startCapture() {
     try {
@@ -93,19 +114,53 @@ export default function ProxyDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <InfoCard label="Registrado em" value={formatDate(proxy.registered_at)} />
         <InfoCard label="Último Sinal" value={formatRelative(proxy.last_seen)} />
-        <InfoCard
-          label="Config"
-          value={
-            proxy.config ? (
-              <Link href={`/configs/${proxy.config.id}`} className="text-blue-600 hover:underline">
-                {proxy.config.name}
+        <div className="bg-white rounded-lg border p-4">
+          <p className="text-sm text-gray-500 mb-1">Config</p>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedConfigId}
+              onChange={(e) => setSelectedConfigId(e.target.value)}
+              className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-sm"
+            >
+              <option value="">Nenhuma</option>
+              {activeConfigs.map((c) => (
+                <option key={c.id} value={c.id}>{c.name} (v{c.version})</option>
+              ))}
+            </select>
+            {selectedConfigId !== (proxy.config?.id ?? '') && (
+              <button
+                onClick={handleAssignConfig}
+                disabled={savingConfig}
+                className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingConfig ? '...' : 'Salvar'}
+              </button>
+            )}
+            {proxy.config && (
+              <Link href={`/configs/${proxy.config.id}`} className="text-blue-600 hover:underline text-sm">
+                Ver
               </Link>
-            ) : (
-              '-'
-            )
-          }
-        />
-        <InfoCard label="Hash" value={proxy.current_config_hash?.slice(0, 12) || '-'} mono />
+            )}
+          </div>
+          {proxy.config && (
+            <div className="flex items-center gap-2 mt-2 text-xs">
+              <span className="text-gray-500">v{proxy.config.version}</span>
+              <span className="text-gray-300">|</span>
+              {proxy.config.in_sync ? (
+                <span className="inline-flex items-center gap-1 text-green-600">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                  Sincronizado
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-yellow-600">
+                  <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
+                  Aguardando sync
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <InfoCard label="Hash no Proxy" value={proxy.current_config_hash?.slice(0, 12) || '-'} mono />
       </div>
 
       {/* Stats Overview */}

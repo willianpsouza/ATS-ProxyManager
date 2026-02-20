@@ -59,3 +59,10 @@ func (r *ConfigProxyRepo) DeleteByConfig(ctx context.Context, configID uuid.UUID
 	)
 	return err
 }
+
+func (r *ConfigProxyRepo) DeleteByProxy(ctx context.Context, proxyID uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`DELETE FROM config_proxies WHERE proxy_id = $1`, proxyID,
+	)
+	return err
+}

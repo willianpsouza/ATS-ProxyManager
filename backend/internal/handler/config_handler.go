@@ -66,6 +66,25 @@ func (h *ConfigHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, detail)
 }
 
+func (h *ConfigHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid config ID")
+		return
+	}
+
+	userID := getUserID(r.Context())
+	ip := clientIP(r)
+	ua := r.UserAgent()
+
+	if err := h.configSvc.Delete(r.Context(), id, userID, ip, ua); err != nil {
+		respondDomainError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *ConfigHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req service.CreateConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

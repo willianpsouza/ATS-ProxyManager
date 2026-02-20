@@ -70,25 +70,6 @@ services:
       - frontend
       - backend
 
-  # Proxy helper sem ATS (leve, para testes de sync)
-  proxy-01:
-    build:
-      context: ./helper
-      dockerfile: Dockerfile
-    environment:
-      BACKEND_URL: http://backend:8080
-      CONFIG_ID: config-prod-01
-      HOSTNAME: proxy-01
-    command:
-      - "--backend-url=http://backend:8080"
-      - "--config-id=config-prod-01"
-      - "--hostname=proxy-01"
-      - "--sync-interval=30s"
-      - "--config-dir=/tmp/ats-config"
-      - "--log-level=info"
-    depends_on:
-      - backend
-
   # Proxy completo com ATS real + helper
   proxy-full-01:
     build:
@@ -98,7 +79,6 @@ services:
       - "9080:8080"
       - "9443:8443"
     volumes:
-      - ats_cache_01:/opt/var/cache/trafficserver
       - ats_logs_01:/opt/var/log/trafficserver
     environment:
       BACKEND_URL: http://backend:8080
@@ -116,5 +96,4 @@ services:
 
 volumes:
   pgdata:
-  ats_cache_01:
   ats_logs_01:

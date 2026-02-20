@@ -43,7 +43,7 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 	userSvc := service.NewUserService(userRepo, auditRepo)
 	configSvc := service.NewConfigService(pool, configRepo, domainRuleRepo, ipRangeRuleRepo, parentProxyRepo, configProxyRepo, auditRepo)
 	syncSvc := service.NewSyncService(proxyRepo, configRepo, configProxyRepo, proxyStatsRepo, proxyLogsRepo, configSvc, rdb)
-	proxySvc := service.NewProxyService(proxyRepo, proxyStatsRepo, proxyLogsRepo, configRepo, auditRepo)
+	proxySvc := service.NewProxyService(proxyRepo, proxyStatsRepo, proxyLogsRepo, configRepo, configProxyRepo, auditRepo)
 	auditSvc := service.NewAuditService(auditRepo, userRepo)
 
 	// Handlers
@@ -99,6 +99,7 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 				r.Post("/", configH.Create)
 				r.Get("/{id}", configH.GetByID)
 				r.Put("/{id}", configH.Update)
+				r.With(RequireRole(domain.RoleRoot, domain.RoleAdmin)).Delete("/{id}", configH.Delete)
 				r.Post("/{id}/submit", configH.Submit)
 				r.Post("/{id}/approve", configH.Approve)
 				r.Post("/{id}/reject", configH.Reject)
@@ -111,6 +112,8 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 				r.Get("/{id}", proxyH.GetByID)
 				r.Post("/{id}/logs", proxyH.StartLogCapture)
 				r.Get("/{id}/logs", proxyH.GetLogs)
+				r.With(RequireRole(domain.RoleRoot, domain.RoleAdmin)).Put("/{id}/config", proxyH.AssignConfig)
+				r.With(RequireRole(domain.RoleRoot, domain.RoleAdmin)).Delete("/{id}", proxyH.Delete)
 			})
 
 			// Audit

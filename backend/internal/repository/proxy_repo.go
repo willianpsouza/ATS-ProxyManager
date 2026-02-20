@@ -124,3 +124,24 @@ func (r *ProxyRepo) MarkOfflineStale(ctx context.Context) error {
 	)
 	return err
 }
+
+func (r *ProxyRepo) DeleteOfflineStale(ctx context.Context) (int64, error) {
+	tag, err := r.db.Exec(ctx,
+		`DELETE FROM proxies WHERE is_online = FALSE AND last_seen < NOW() - INTERVAL '4 hours'`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete offline stale proxies: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (r *ProxyRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, `DELETE FROM proxies WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete proxy: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}

@@ -40,15 +40,17 @@ func (r *ConfigRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Config,
 func (r *ConfigRepo) List(ctx context.Context, status *domain.ConfigStatus, limit, offset int) ([]domain.Config, int, error) {
 	var total int
 	countQuery := `SELECT COUNT(*) FROM configs`
-	listQuery := `SELECT id, name, description, status, version,
-	              created_by, created_at, modified_by, modified_at,
-	              submitted_by, submitted_at, approved_by, approved_at, config_hash
-	              FROM configs`
+	listQuery := `SELECT c.id, c.name, c.description, c.status, c.version,
+	              c.created_by, c.created_at, c.modified_by, c.modified_at,
+	              c.submitted_by, c.submitted_at, c.approved_by, c.approved_at, c.config_hash,
+	              COUNT(cp.proxy_id) AS proxy_count
+	              FROM configs c
+	              LEFT JOIN config_proxies cp ON c.id = cp.config_id`
 
 	args := []interface{}{}
 	if status != nil {
 		countQuery += ` WHERE status = $1`
-		listQuery += ` WHERE status = $1`
+		listQuery += ` WHERE c.status = $1`
 		args = append(args, *status)
 	}
 
@@ -57,8 +59,10 @@ func (r *ConfigRepo) List(ctx context.Context, status *domain.ConfigStatus, limi
 		return nil, 0, fmt.Errorf("count configs: %w", err)
 	}
 
+	listQuery += ` GROUP BY c.id`
+
 	argIdx := len(args) + 1
-	listQuery += fmt.Sprintf(` ORDER BY modified_at DESC LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	listQuery += fmt.Sprintf(` ORDER BY c.modified_at DESC LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, listQuery, args...)
@@ -72,13 +76,25 @@ func (r *ConfigRepo) List(ctx context.Context, status *domain.ConfigStatus, limi
 		var c domain.Config
 		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Status, &c.Version,
 			&c.CreatedBy, &c.CreatedAt, &c.ModifiedBy, &c.ModifiedAt,
-			&c.SubmittedBy, &c.SubmittedAt, &c.ApprovedBy, &c.ApprovedAt, &c.ConfigHash); err != nil {
+			&c.SubmittedBy, &c.SubmittedAt, &c.ApprovedBy, &c.ApprovedAt, &c.ConfigHash,
+			&c.ProxyCount); err != nil {
 			return nil, 0, fmt.Errorf("scan config: %w", err)
 		}
 		configs = append(configs, c)
 	}
 
 	return configs, total, nil
+}
+
+func (r *ConfigRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, `DELETE FROM configs WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete config: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *ConfigRepo) Create(ctx context.Context, c *domain.Config) error {

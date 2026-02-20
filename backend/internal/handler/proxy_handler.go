@@ -77,6 +77,62 @@ func (h *ProxyHandler) StartLogCapture(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *ProxyHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid proxy ID")
+		return
+	}
+
+	userID := getUserID(r.Context())
+	ip := clientIP(r)
+	ua := r.UserAgent()
+
+	if err := h.proxySvc.Delete(r.Context(), id, userID, ip, ua); err != nil {
+		respondDomainError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ProxyHandler) AssignConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid proxy ID")
+		return
+	}
+
+	var req struct {
+		ConfigID *string `json:"config_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
+		return
+	}
+
+	var configID *uuid.UUID
+	if req.ConfigID != nil && *req.ConfigID != "" {
+		parsed, err := uuid.Parse(*req.ConfigID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "bad_request", "Invalid config ID")
+			return
+		}
+		configID = &parsed
+	}
+
+	userID := getUserID(r.Context())
+	ip := clientIP(r)
+	ua := r.UserAgent()
+
+	if err := h.proxySvc.AssignConfig(r.Context(), id, configID, userID, ip, ua); err != nil {
+		respondDomainError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *ProxyHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

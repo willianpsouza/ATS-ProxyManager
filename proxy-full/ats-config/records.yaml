@@ -7,9 +7,9 @@ records:
   http:
     server_ports: 8080 8080:ipv6
 
-    # Forward proxy: aceita requests sem remap
+    # Cache desabilitado — proxy apenas repassa requisições
     cache:
-      http: 1
+      http: 0
 
     # Parent proxy routing
     parent_proxy:
@@ -31,8 +31,6 @@ records:
     # CONNECT tunnel (HTTPS)
     connect_ports: 443 563
 
-    # Bypass parent para uncacheable
-    uncacheable_requests_bypass_parent: 1
 
   # Forward proxy: remap not required
   url_remap:

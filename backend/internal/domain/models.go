@@ -47,6 +47,7 @@ type Config struct {
 	ApprovedBy  *uuid.UUID `json:"approved_by,omitempty"`
 	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
 	ConfigHash  *string    `json:"config_hash,omitempty"`
+	ProxyCount  int        `json:"proxy_count,omitempty"`
 }
 
 type DomainRule struct {
