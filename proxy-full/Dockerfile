@@ -1,7 +1,7 @@
 # ============================
 # Stage 1: Build helper binary
 # ============================
-FROM golang:1.22-alpine AS helper-builder
+FROM golang:1.26-alpine AS helper-builder
 
 WORKDIR /build
 COPY helper/go.mod ./

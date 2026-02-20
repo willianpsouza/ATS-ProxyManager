@@ -8,8 +8,8 @@ Sistema de gerenciamento centralizado para configurações de proxies Apache Tra
 
 | Componente | Tecnologia |
 |-----------|------------|
-| Backend API | Go 1.25, chi router, pgx (PostgreSQL), golang-jwt, bcrypt, go-redis |
-| Helper | Go 1.22 (stdlib only) |
+| Backend API | Go 1.26, chi router, pgx (PostgreSQL), golang-jwt, bcrypt, go-redis |
+| Helper | Go 1.26 (stdlib only) |
 | Database | PostgreSQL 16 |
 | Cache | Redis 7 |
 | Containers | Docker Compose (dev), Dockerfiles (prod) |
