@@ -142,6 +142,7 @@ export const api = {
       domains: { domain: string; action: string; priority: number }[];
       ip_ranges: { cidr: string; action: string; priority: number }[];
       parent_proxies: { address: string; port: number; priority: number; enabled: boolean }[];
+      client_acl?: { cidr: string; action: string; priority: number }[];
       proxy_ids: string[];
     }) => fetchAPI<Config>('/configs', { method: 'POST', body: JSON.stringify(data) }),
     update: (
@@ -152,6 +153,7 @@ export const api = {
         domains: { domain: string; action: string; priority: number }[];
         ip_ranges: { cidr: string; action: string; priority: number }[];
         parent_proxies: { address: string; port: number; priority: number; enabled: boolean }[];
+        client_acl?: { cidr: string; action: string; priority: number }[];
         proxy_ids: string[];
       }
     ) => fetchAPI<Config>(`/configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

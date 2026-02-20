@@ -125,7 +125,8 @@ func (s *AuthService) Beacon(ctx context.Context, tokenHash string) error {
 	if err != nil {
 		return fmt.Errorf("%w: session not found", domain.ErrUnauthorized)
 	}
-	return s.sessions.UpdateBeacon(ctx, session.ID)
+	newExpiry := time.Now().Add(auth.TokenExpiry)
+	return s.sessions.UpdateBeacon(ctx, session.ID, newExpiry)
 }
 
 func (s *AuthService) Logout(ctx context.Context, tokenHash string) error {

@@ -114,6 +114,24 @@ CREATE TABLE ip_range_rules (
 CREATE INDEX idx_ip_range_rules_config ON ip_range_rules(config_id);
 
 -- -----------------------------------------------------------------------------
+-- Client ACL Rules (Regras de acesso de clientes - ip_allow.yaml)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE client_acl_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    config_id UUID NOT NULL REFERENCES configs(id) ON DELETE CASCADE,
+    cidr VARCHAR(50) NOT NULL,
+    action VARCHAR(20) NOT NULL DEFAULT 'allow',  -- allow | deny
+    priority INTEGER NOT NULL DEFAULT 100,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(config_id, cidr)
+);
+
+-- Índices
+CREATE INDEX idx_client_acl_rules_config ON client_acl_rules(config_id);
+
+-- -----------------------------------------------------------------------------
 -- Parent Proxies (Proxies upstream)
 -- -----------------------------------------------------------------------------
 
@@ -140,15 +158,16 @@ CREATE TABLE proxies (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hostname VARCHAR(255) NOT NULL UNIQUE,
     config_id UUID REFERENCES configs(id),
-    
+
     -- Status
     is_online BOOLEAN DEFAULT FALSE,
     last_seen TIMESTAMP WITH TIME ZONE,
     current_config_hash VARCHAR(64),
-    
+
     -- Registro
     registered_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+    registered_ip VARCHAR(45),
+
     -- Captura de logs
     capture_logs_until TIMESTAMP WITH TIME ZONE
 );

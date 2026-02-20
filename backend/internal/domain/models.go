@@ -68,6 +68,15 @@ type IPRangeRule struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type ClientACLRule struct {
+	ID        uuid.UUID `json:"id"`
+	ConfigID  uuid.UUID `json:"config_id"`
+	CIDR      string    `json:"cidr"`
+	Action    ACLAction `json:"action"`
+	Priority  int       `json:"priority"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type ParentProxy struct {
 	ID        uuid.UUID `json:"id"`
 	ConfigID  uuid.UUID `json:"config_id"`
@@ -86,6 +95,7 @@ type Proxy struct {
 	LastSeen          *time.Time `json:"last_seen,omitempty"`
 	CurrentConfigHash *string    `json:"current_config_hash,omitempty"`
 	RegisteredAt      time.Time  `json:"registered_at"`
+	RegisteredIP      *string    `json:"registered_ip,omitempty"`
 	CaptureLogsUntil  *time.Time `json:"capture_logs_until,omitempty"`
 }
 

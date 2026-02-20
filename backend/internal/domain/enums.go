@@ -59,3 +59,18 @@ func (a RuleAction) IsValid() bool {
 	}
 	return false
 }
+
+type ACLAction string
+
+const (
+	ACLAllow ACLAction = "allow"
+	ACLDeny  ACLAction = "deny"
+)
+
+func (a ACLAction) IsValid() bool {
+	switch a {
+	case ACLAllow, ACLDeny:
+		return true
+	}
+	return false
+}

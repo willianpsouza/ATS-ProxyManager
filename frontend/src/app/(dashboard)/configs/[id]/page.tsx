@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
-import type { Config, DomainRule, IPRangeRule, ParentProxy, Proxy, ApiError } from '@/types';
+import type { Config, DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
 import { StatusBadge } from '@/components/status-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Loading } from '@/components/loading';
@@ -29,6 +29,7 @@ export default function ConfigDetailPage() {
   const [domains, setDomains] = useState<Omit<DomainRule, 'id'>[]>([]);
   const [ipRanges, setIpRanges] = useState<Omit<IPRangeRule, 'id'>[]>([]);
   const [parentProxies, setParentProxies] = useState<Omit<ParentProxy, 'id'>[]>([]);
+  const [clientACL, setClientACL] = useState<Omit<ClientACLRule, 'id'>[]>([]);
   const [selectedProxyIds, setSelectedProxyIds] = useState<string[]>([]);
   const [availableProxies, setAvailableProxies] = useState<Proxy[]>([]);
 
@@ -52,6 +53,9 @@ export default function ConfigDetailPage() {
           enabled: p.enabled,
         }))
       );
+      setClientACL(
+        (data.client_acl || []).map((a) => ({ cidr: a.cidr, action: a.action, priority: a.priority }))
+      );
       setSelectedProxyIds((data.proxies || []).map((p) => p.id));
     } catch (err) {
       toast.error((err as ApiError).message || 'Erro ao carregar config');
@@ -74,6 +78,7 @@ export default function ConfigDetailPage() {
         domains,
         ip_ranges: ipRanges,
         parent_proxies: parentProxies,
+        client_acl: clientACL,
         proxy_ids: selectedProxyIds,
       });
       toast.success('Config atualizada');
@@ -211,6 +216,8 @@ export default function ConfigDetailPage() {
           setIpRanges={setIpRanges}
           parentProxies={parentProxies}
           setParentProxies={setParentProxies}
+          clientACL={clientACL}
+          setClientACL={setClientACL}
           selectedProxyIds={selectedProxyIds}
           setSelectedProxyIds={setSelectedProxyIds}
           availableProxies={availableProxies}
@@ -344,6 +351,37 @@ function ReadOnlyView({ config }: { config: Config }) {
         )}
       </div>
 
+      {/* Client ACL */}
+      <div className="bg-white rounded-lg border p-5">
+        <h2 className="text-base font-semibold text-gray-900 mb-3">ACL de Clientes (ip_allow)</h2>
+        {!config.client_acl?.length ? (
+          <p className="text-sm text-gray-500">Nenhuma regra de ACL.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-600">
+                <th className="pb-2 font-medium">CIDR</th>
+                <th className="pb-2 font-medium">Ação</th>
+                <th className="pb-2 font-medium">Prioridade</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {config.client_acl.map((acl, i) => (
+                <tr key={i}>
+                  <td className="py-2 font-mono text-xs">{acl.cidr}</td>
+                  <td className="py-2">
+                    <span className={`text-xs font-medium ${acl.action === 'allow' ? 'text-green-600' : 'text-red-500'}`}>
+                      {acl.action}
+                    </span>
+                  </td>
+                  <td className="py-2">{acl.priority}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {/* Assigned Proxies */}
       <div className="bg-white rounded-lg border p-5">
         <h2 className="text-base font-semibold text-gray-900 mb-3">Proxies Associados</h2>
@@ -373,6 +411,7 @@ function EditForm({
   domains, setDomains,
   ipRanges, setIpRanges,
   parentProxies, setParentProxies,
+  clientACL, setClientACL,
   selectedProxyIds, setSelectedProxyIds,
   availableProxies,
   saving, onSave, onCancel,
@@ -382,6 +421,7 @@ function EditForm({
   domains: Omit<DomainRule, 'id'>[]; setDomains: (v: Omit<DomainRule, 'id'>[]) => void;
   ipRanges: Omit<IPRangeRule, 'id'>[]; setIpRanges: (v: Omit<IPRangeRule, 'id'>[]) => void;
   parentProxies: Omit<ParentProxy, 'id'>[]; setParentProxies: (v: Omit<ParentProxy, 'id'>[]) => void;
+  clientACL: Omit<ClientACLRule, 'id'>[]; setClientACL: (v: Omit<ClientACLRule, 'id'>[]) => void;
   selectedProxyIds: string[]; setSelectedProxyIds: (v: string[]) => void;
   availableProxies: Proxy[];
   saving: boolean; onSave: () => void; onCancel: () => void;
@@ -590,6 +630,69 @@ function EditForm({
               </label>
               <button
                 onClick={() => setParentProxies(parentProxies.filter((_, idx) => idx !== i))}
+                className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Client ACL */}
+      <div className="bg-white rounded-lg border p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold text-gray-900">ACL de Clientes (ip_allow)</h2>
+          <button
+            type="button"
+            onClick={() =>
+              setClientACL([
+                ...clientACL,
+                { cidr: '', action: 'allow', priority: (clientACL.length + 1) * 10 },
+              ])
+            }
+            className="px-3 py-1 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Adicionar
+          </button>
+        </div>
+        <div className="space-y-2">
+          {clientACL.map((acl, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <input
+                value={acl.cidr}
+                onChange={(e) => {
+                  const next = [...clientACL];
+                  next[i] = { ...next[i], cidr: e.target.value };
+                  setClientACL(next);
+                }}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="10.0.0.0/8"
+              />
+              <select
+                value={acl.action}
+                onChange={(e) => {
+                  const next = [...clientACL];
+                  next[i] = { ...next[i], action: e.target.value as 'allow' | 'deny' };
+                  setClientACL(next);
+                }}
+                className="w-32 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+              </select>
+              <input
+                type="number"
+                value={acl.priority}
+                onChange={(e) => {
+                  const next = [...clientACL];
+                  next[i] = { ...next[i], priority: parseInt(e.target.value) || 0 };
+                  setClientACL(next);
+                }}
+                className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <button
+                onClick={() => setClientACL(clientACL.filter((_, idx) => idx !== i))}
                 className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg"
               >
                 &times;

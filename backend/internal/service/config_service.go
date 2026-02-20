@@ -23,6 +23,7 @@ type ConfigService struct {
 	domains      *repository.DomainRuleRepo
 	ipRanges     *repository.IPRangeRuleRepo
 	parents      *repository.ParentProxyRepo
+	clientACL    *repository.ClientACLRepo
 	configProxy  *repository.ConfigProxyRepo
 	audit        *repository.AuditRepo
 }
@@ -33,6 +34,7 @@ func NewConfigService(
 	domains *repository.DomainRuleRepo,
 	ipRanges *repository.IPRangeRuleRepo,
 	parents *repository.ParentProxyRepo,
+	clientACL *repository.ClientACLRepo,
 	configProxy *repository.ConfigProxyRepo,
 	audit *repository.AuditRepo,
 ) *ConfigService {
@@ -42,6 +44,7 @@ func NewConfigService(
 		domains:     domains,
 		ipRanges:    ipRanges,
 		parents:     parents,
+		clientACL:   clientACL,
 		configProxy: configProxy,
 		audit:       audit,
 	}
@@ -49,10 +52,11 @@ func NewConfigService(
 
 type ConfigDetail struct {
 	domain.Config
-	Domains       []domain.DomainRule  `json:"domains"`
-	IPRanges      []domain.IPRangeRule `json:"ip_ranges"`
-	ParentProxies []domain.ParentProxy `json:"parent_proxies"`
-	Proxies       []domain.Proxy       `json:"proxies"`
+	Domains       []domain.DomainRule    `json:"domains"`
+	IPRanges      []domain.IPRangeRule   `json:"ip_ranges"`
+	ParentProxies []domain.ParentProxy   `json:"parent_proxies"`
+	ClientACL     []domain.ClientACLRule `json:"client_acl"`
+	Proxies       []domain.Proxy         `json:"proxies"`
 	ModifiedByUser  *UserResponse `json:"modified_by_user,omitempty"`
 	ApprovedByUser  *UserResponse `json:"approved_by_user,omitempty"`
 }
@@ -75,6 +79,10 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*ConfigDetai
 	if err != nil {
 		return nil, err
 	}
+	clientACL, err := s.clientACL.ListByConfig(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	proxies, err := s.configProxy.ListByConfig(ctx, id)
 	if err != nil {
 		return nil, err
@@ -89,6 +97,9 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*ConfigDetai
 	if parents == nil {
 		parents = []domain.ParentProxy{}
 	}
+	if clientACL == nil {
+		clientACL = []domain.ClientACLRule{}
+	}
 	if proxies == nil {
 		proxies = []domain.Proxy{}
 	}
@@ -98,6 +109,7 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*ConfigDetai
 		Domains:       domains,
 		IPRanges:      ipRanges,
 		ParentProxies: parents,
+		ClientACL:     clientACL,
 		Proxies:       proxies,
 	}, nil
 }
@@ -144,6 +156,7 @@ type CreateConfigRequest struct {
 	Domains       []DomainRuleInput         `json:"domains"`
 	IPRanges      []IPRangeRuleInput        `json:"ip_ranges"`
 	ParentProxies []ParentProxyInput        `json:"parent_proxies"`
+	ClientACL     []ClientACLInput          `json:"client_acl"`
 	ProxyIDs      []uuid.UUID               `json:"proxy_ids"`
 }
 
@@ -166,6 +179,12 @@ type ParentProxyInput struct {
 	Enabled  bool   `json:"enabled"`
 }
 
+type ClientACLInput struct {
+	CIDR     string           `json:"cidr"`
+	Action   domain.ACLAction `json:"action"`
+	Priority int              `json:"priority"`
+}
+
 func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, userID uuid.UUID, ip, ua string) (*ConfigDetail, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", domain.ErrBadRequest)
@@ -178,6 +197,7 @@ func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, use
 		txDomains := repository.NewDomainRuleRepo(tx)
 		txIPRanges := repository.NewIPRangeRuleRepo(tx)
 		txParents := repository.NewParentProxyRepo(tx)
+		txClientACL := repository.NewClientACLRepo(tx)
 		txConfigProxy := repository.NewConfigProxyRepo(tx)
 		txAudit := repository.NewAuditRepo(tx)
 
@@ -217,6 +237,24 @@ func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, use
 			parents = append(parents, proxy)
 		}
 
+		// Client ACL rules — insert defaults if none provided
+		aclInputs := req.ClientACL
+		if len(aclInputs) == 0 {
+			aclInputs = []ClientACLInput{
+				{CIDR: "127.0.0.1", Action: domain.ACLAllow, Priority: 10},
+				{CIDR: "::1", Action: domain.ACLAllow, Priority: 20},
+				{CIDR: "10.0.0.0/8", Action: domain.ACLAllow, Priority: 30},
+			}
+		}
+		clientACL := make([]domain.ClientACLRule, 0, len(aclInputs))
+		for _, acl := range aclInputs {
+			rule := domain.ClientACLRule{ConfigID: cfg.ID, CIDR: acl.CIDR, Action: acl.Action, Priority: acl.Priority}
+			if err := txClientACL.Create(ctx, &rule); err != nil {
+				return err
+			}
+			clientACL = append(clientACL, rule)
+		}
+
 		for _, pid := range req.ProxyIDs {
 			if err := txConfigProxy.Assign(ctx, cfg.ID, pid, userID); err != nil {
 				return err
@@ -237,6 +275,7 @@ func (s *ConfigService) Create(ctx context.Context, req CreateConfigRequest, use
 			Domains:       domains,
 			IPRanges:      ipRanges,
 			ParentProxies: parents,
+			ClientACL:     clientACL,
 			Proxies:       []domain.Proxy{},
 		}
 		return nil
@@ -256,6 +295,7 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 		txDomains := repository.NewDomainRuleRepo(tx)
 		txIPRanges := repository.NewIPRangeRuleRepo(tx)
 		txParents := repository.NewParentProxyRepo(tx)
+		txClientACL := repository.NewClientACLRepo(tx)
 		txConfigProxy := repository.NewConfigProxyRepo(tx)
 		txAudit := repository.NewAuditRepo(tx)
 
@@ -282,6 +322,9 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 			return err
 		}
 		if err := txParents.DeleteByConfig(ctx, id); err != nil {
+			return err
+		}
+		if err := txClientACL.DeleteByConfig(ctx, id); err != nil {
 			return err
 		}
 		if err := txConfigProxy.DeleteByConfig(ctx, id); err != nil {
@@ -315,6 +358,15 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 			parents = append(parents, proxy)
 		}
 
+		clientACL := make([]domain.ClientACLRule, 0, len(req.ClientACL))
+		for _, acl := range req.ClientACL {
+			rule := domain.ClientACLRule{ConfigID: id, CIDR: acl.CIDR, Action: acl.Action, Priority: acl.Priority}
+			if err := txClientACL.Create(ctx, &rule); err != nil {
+				return err
+			}
+			clientACL = append(clientACL, rule)
+		}
+
 		for _, pid := range req.ProxyIDs {
 			if err := txConfigProxy.Assign(ctx, id, pid, userID); err != nil {
 				return err
@@ -340,6 +392,7 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req CreateConf
 			Domains:       domains,
 			IPRanges:      ipRanges,
 			ParentProxies: parents,
+			ClientACL:     clientACL,
 			Proxies:       []domain.Proxy{},
 		}
 		return nil
@@ -359,6 +412,7 @@ func (s *ConfigService) Clone(ctx context.Context, id, userID uuid.UUID, ip, ua 
 		txDomains := repository.NewDomainRuleRepo(tx)
 		txIPRanges := repository.NewIPRangeRuleRepo(tx)
 		txParents := repository.NewParentProxyRepo(tx)
+		txClientACL := repository.NewClientACLRepo(tx)
 		txConfigProxy := repository.NewConfigProxyRepo(tx)
 		txAudit := repository.NewAuditRepo(tx)
 
@@ -420,6 +474,20 @@ func (s *ConfigService) Clone(ctx context.Context, id, userID uuid.UUID, ip, ua 
 			parents = append(parents, proxy)
 		}
 
+		// Copy client ACL rules
+		origACL, err := txClientACL.ListByConfig(ctx, id)
+		if err != nil {
+			return err
+		}
+		clientACL := make([]domain.ClientACLRule, 0, len(origACL))
+		for _, acl := range origACL {
+			rule := domain.ClientACLRule{ConfigID: newCfg.ID, CIDR: acl.CIDR, Action: acl.Action, Priority: acl.Priority}
+			if err := txClientACL.Create(ctx, &rule); err != nil {
+				return err
+			}
+			clientACL = append(clientACL, rule)
+		}
+
 		// Copy config_proxies assignments
 		origProxies, err := txConfigProxy.ListByConfig(ctx, id)
 		if err != nil {
@@ -446,6 +514,7 @@ func (s *ConfigService) Clone(ctx context.Context, id, userID uuid.UUID, ip, ua 
 			Domains:       domains,
 			IPRanges:      ipRanges,
 			ParentProxies: parents,
+			ClientACL:     clientACL,
 			Proxies:       origProxies,
 		}
 		return nil
@@ -536,15 +605,16 @@ func (s *ConfigService) Reject(ctx context.Context, id, userID uuid.UUID, reason
 	return s.configs.GetByID(ctx, id)
 }
 
-// GenerateConfigHash computes SHA256 of the generated parent.config + sni.yaml content.
+// GenerateConfigHash computes SHA256 of the generated parent.config + sni.yaml + ip_allow.yaml content.
 func (s *ConfigService) GenerateConfigHash(ctx context.Context, configID uuid.UUID) (string, error) {
-	parentConfig, sniYaml, _, err := s.GenerateConfigFiles(ctx, configID)
+	parentConfig, sniYaml, ipAllowYaml, err := s.GenerateConfigFiles(ctx, configID)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
 	h.Write([]byte(parentConfig))
 	h.Write([]byte(sniYaml))
+	h.Write([]byte(ipAllowYaml))
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
@@ -563,9 +633,14 @@ func (s *ConfigService) GenerateConfigFiles(ctx context.Context, configID uuid.U
 		return "", "", "", err
 	}
 
+	clientACL, err := s.clientACL.ListByConfig(ctx, configID)
+	if err != nil {
+		return "", "", "", err
+	}
+
 	parentConfig = generateParentConfig(ipRanges, domains, parents)
 	sniYaml = generateSNIYaml(domains)
-	ipAllowYaml = ""
+	ipAllowYaml = generateIPAllowYaml(clientACL)
 
 	return parentConfig, sniYaml, ipAllowYaml, nil
 }
@@ -652,6 +727,27 @@ func cidrToRange(cidr string) string {
 	}
 
 	return fmt.Sprintf("%s-%s", start.String(), end.String())
+}
+
+func generateIPAllowYaml(rules []domain.ClientACLRule) string {
+	var b strings.Builder
+	b.WriteString("ip_allow:\n")
+
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Priority < rules[j].Priority })
+
+	for _, r := range rules {
+		atsAction := "set_allow"
+		if r.Action == domain.ACLDeny {
+			atsAction = "set_deny"
+		}
+		b.WriteString(fmt.Sprintf("  - apply: in\n    ip_addrs: %s\n    action: %s\n    methods: ALL\n", r.CIDR, atsAction))
+	}
+
+	// Always append deny-all for both IPv4 and IPv6
+	b.WriteString("  - apply: in\n    ip_addrs: 0/0\n    action: set_deny\n    methods: ALL\n")
+	b.WriteString("  - apply: in\n    ip_addrs: ::/0\n    action: set_deny\n    methods: ALL\n")
+
+	return b.String()
 }
 
 func jsonVal(key, value string) []byte {

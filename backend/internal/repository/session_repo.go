@@ -70,9 +70,10 @@ func (r *SessionRepo) GetByRefreshTokenHash(ctx context.Context, hash string) (*
 	return &s, nil
 }
 
-func (r *SessionRepo) UpdateBeacon(ctx context.Context, id uuid.UUID) error {
+func (r *SessionRepo) UpdateBeacon(ctx context.Context, id uuid.UUID, newExpiry time.Time) error {
 	_, err := r.db.Exec(ctx,
-		`UPDATE sessions SET last_beacon = NOW() WHERE id = $1`, id,
+		`UPDATE sessions SET last_beacon = NOW(), expires_at = $1 WHERE id = $2`,
+		newExpiry, id,
 	)
 	return err
 }

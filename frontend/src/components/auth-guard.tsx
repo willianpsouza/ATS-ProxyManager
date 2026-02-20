@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { api } from '@/lib/api';
 
+const BEACON_INTERVAL = 25_000; // 25s
+const MAX_BEACON_FAILURES = 3;
+
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const beaconRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -21,16 +24,20 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     beaconRef.current = setInterval(async () => {
       try {
         await api.auth.beacon();
+        failCountRef.current = 0;
       } catch {
-        logout();
-        router.replace('/login');
+        failCountRef.current++;
+        if (failCountRef.current >= MAX_BEACON_FAILURES) {
+          logout();
+          router.replace('/login');
+        }
       }
-    }, 25_000);
+    }, BEACON_INTERVAL);
 
     return () => {
       if (beaconRef.current) clearInterval(beaconRef.current);
     };
-  }, [isAuthenticated, token, router, logout]);
+  }, [isAuthenticated, router, logout]);
 
   if (!isAuthenticated) return null;
 

@@ -32,6 +32,7 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 	domainRuleRepo := repository.NewDomainRuleRepo(pool)
 	ipRangeRuleRepo := repository.NewIPRangeRuleRepo(pool)
 	parentProxyRepo := repository.NewParentProxyRepo(pool)
+	clientACLRepo := repository.NewClientACLRepo(pool)
 	proxyRepo := repository.NewProxyRepo(pool)
 	configProxyRepo := repository.NewConfigProxyRepo(pool)
 	proxyStatsRepo := repository.NewProxyStatsRepo(pool)
@@ -41,7 +42,7 @@ func NewRouter(pool *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) http.H
 	// Services
 	authSvc := service.NewAuthService(userRepo, sessionRepo, cfg.JWTSecret)
 	userSvc := service.NewUserService(userRepo, auditRepo)
-	configSvc := service.NewConfigService(pool, configRepo, domainRuleRepo, ipRangeRuleRepo, parentProxyRepo, configProxyRepo, auditRepo)
+	configSvc := service.NewConfigService(pool, configRepo, domainRuleRepo, ipRangeRuleRepo, parentProxyRepo, clientACLRepo, configProxyRepo, auditRepo)
 	syncSvc := service.NewSyncService(proxyRepo, configRepo, configProxyRepo, proxyStatsRepo, proxyLogsRepo, configSvc, rdb)
 	proxySvc := service.NewProxyService(proxyRepo, proxyStatsRepo, proxyLogsRepo, configRepo, configProxyRepo, auditRepo)
 	auditSvc := service.NewAuditService(auditRepo, userRepo)

@@ -1,6 +1,7 @@
 export type UserRole = 'root' | 'admin' | 'regular';
 export type ConfigStatus = 'draft' | 'pending_approval' | 'approved' | 'active';
 export type RuleAction = 'direct' | 'parent';
+export type ACLAction = 'allow' | 'deny';
 
 export interface User {
   id: string;
@@ -23,6 +24,7 @@ export interface Config {
   domains?: DomainRule[];
   ip_ranges?: IPRangeRule[];
   parent_proxies?: ParentProxy[];
+  client_acl?: ClientACLRule[];
   proxies?: ProxySummary[];
   created_by?: UserRef;
   modified_by?: UserRef;
@@ -50,6 +52,13 @@ export interface IPRangeRule {
   id?: string;
   cidr: string;
   action: RuleAction;
+  priority: number;
+}
+
+export interface ClientACLRule {
+  id?: string;
+  cidr: string;
+  action: ACLAction;
   priority: number;
 }
 

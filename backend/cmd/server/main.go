@@ -11,8 +11,10 @@ import (
 
 	"github.com/ats-proxy/proxy-manager/backend/internal/config"
 	"github.com/ats-proxy/proxy-manager/backend/internal/handler"
+	"github.com/ats-proxy/proxy-manager/backend/internal/migrate"
 	"github.com/ats-proxy/proxy-manager/backend/internal/repository"
 	"github.com/ats-proxy/proxy-manager/backend/internal/scheduler"
+	"github.com/ats-proxy/proxy-manager/backend/migrations"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -25,6 +27,11 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer pool.Close()
+
+	// Run database migrations
+	if err := migrate.Run(context.Background(), pool, migrations.FS); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Redis
 	opts, err := redis.ParseURL(cfg.RedisURL)

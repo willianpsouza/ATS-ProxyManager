@@ -22,9 +22,9 @@ func NewProxyRepo(db DBTX) *ProxyRepo {
 func (r *ProxyRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Proxy, error) {
 	var p domain.Proxy
 	err := r.db.QueryRow(ctx,
-		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, capture_logs_until
+		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, registered_ip, capture_logs_until
 		 FROM proxies WHERE id = $1`, id,
-	).Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.CaptureLogsUntil)
+	).Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.RegisteredIP, &p.CaptureLogsUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -37,9 +37,9 @@ func (r *ProxyRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Proxy, e
 func (r *ProxyRepo) GetByHostname(ctx context.Context, hostname string) (*domain.Proxy, error) {
 	var p domain.Proxy
 	err := r.db.QueryRow(ctx,
-		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, capture_logs_until
+		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, registered_ip, capture_logs_until
 		 FROM proxies WHERE hostname = $1`, hostname,
-	).Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.CaptureLogsUntil)
+	).Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.RegisteredIP, &p.CaptureLogsUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -51,7 +51,7 @@ func (r *ProxyRepo) GetByHostname(ctx context.Context, hostname string) (*domain
 
 func (r *ProxyRepo) List(ctx context.Context) ([]domain.Proxy, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, capture_logs_until
+		`SELECT id, hostname, config_id, is_online, last_seen, current_config_hash, registered_at, registered_ip, capture_logs_until
 		 FROM proxies ORDER BY hostname`,
 	)
 	if err != nil {
@@ -62,7 +62,7 @@ func (r *ProxyRepo) List(ctx context.Context) ([]domain.Proxy, error) {
 	var proxies []domain.Proxy
 	for rows.Next() {
 		var p domain.Proxy
-		if err := rows.Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.CaptureLogsUntil); err != nil {
+		if err := rows.Scan(&p.ID, &p.Hostname, &p.ConfigID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.RegisteredIP, &p.CaptureLogsUntil); err != nil {
 			return nil, fmt.Errorf("scan proxy: %w", err)
 		}
 		proxies = append(proxies, p)
@@ -72,10 +72,10 @@ func (r *ProxyRepo) List(ctx context.Context) ([]domain.Proxy, error) {
 
 func (r *ProxyRepo) Create(ctx context.Context, p *domain.Proxy) error {
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO proxies (hostname, config_id)
-		 VALUES ($1, $2)
+		`INSERT INTO proxies (hostname, config_id, registered_ip)
+		 VALUES ($1, $2, $3)
 		 RETURNING id, is_online, registered_at`,
-		p.Hostname, p.ConfigID,
+		p.Hostname, p.ConfigID, p.RegisteredIP,
 	).Scan(&p.ID, &p.IsOnline, &p.RegisteredAt)
 	if err != nil {
 		return fmt.Errorf("create proxy: %w", err)
@@ -83,18 +83,12 @@ func (r *ProxyRepo) Create(ctx context.Context, p *domain.Proxy) error {
 	return nil
 }
 
-func (r *ProxyRepo) Upsert(ctx context.Context, p *domain.Proxy) error {
-	err := r.db.QueryRow(ctx,
-		`INSERT INTO proxies (hostname, config_id)
-		 VALUES ($1, $2)
-		 ON CONFLICT (hostname) DO UPDATE SET config_id = COALESCE(EXCLUDED.config_id, proxies.config_id)
-		 RETURNING id, is_online, last_seen, current_config_hash, registered_at, capture_logs_until`,
-		p.Hostname, p.ConfigID,
-	).Scan(&p.ID, &p.IsOnline, &p.LastSeen, &p.CurrentConfigHash, &p.RegisteredAt, &p.CaptureLogsUntil)
-	if err != nil {
-		return fmt.Errorf("upsert proxy: %w", err)
-	}
-	return nil
+
+func (r *ProxyRepo) UpdateRegisteredIP(ctx context.Context, id uuid.UUID, ip string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE proxies SET registered_ip = $1 WHERE id = $2`, ip, id,
+	)
+	return err
 }
 
 func (r *ProxyRepo) UpdateLastSeen(ctx context.Context, id uuid.UUID) error {

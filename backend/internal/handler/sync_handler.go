@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 
 	"github.com/ats-proxy/proxy-manager/backend/internal/service"
@@ -22,6 +23,9 @@ func (h *SyncHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract client IP
+	req.RemoteIP = extractIP(r)
+
 	resp, err := h.syncSvc.Register(r.Context(), req)
 	if err != nil {
 		respondDomainError(w, err)
@@ -29,6 +33,30 @@ func (h *SyncHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, resp)
+}
+
+func extractIP(r *http.Request) string {
+	// Check X-Real-IP first (set by nginx)
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Check X-Forwarded-For (first IP is the client)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		for i := 0; i < len(xff); i++ {
+			if xff[i] == ',' {
+				return xff[:i]
+			}
+		}
+		return xff
+	}
+
+	// Fallback to RemoteAddr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (h *SyncHandler) GetConfig(w http.ResponseWriter, r *http.Request) {

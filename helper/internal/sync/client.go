@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,7 +19,9 @@ import (
 type Client struct {
 	cfg        *config.Config
 	httpClient *http.Client
+	ctrlClient *http.Client // timeout curto para hello/register
 	backoff    *Backoff
+	proxyID    string // ID retornado no primeiro registro, usado para re-registro
 }
 
 // NewClient cria um novo cliente de sincronização
@@ -27,6 +30,9 @@ func NewClient(cfg *config.Config) *Client {
 		cfg: cfg,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+		},
+		ctrlClient: &http.Client{
+			Timeout: 4 * time.Second,
 		},
 		backoff: NewBackoff(config.DefaultBackoff()),
 	}
@@ -38,6 +44,7 @@ func NewClient(cfg *config.Config) *Client {
 type RegisterRequest struct {
 	Hostname string `json:"hostname"`
 	ConfigID string `json:"config_id"`
+	ProxyID  string `json:"proxy_id,omitempty"`
 }
 
 // RegisterResponse resposta do registro
@@ -115,34 +122,59 @@ type LogLine struct {
 
 // ========== Client Methods ==========
 
-// Register registra este proxy no backend
+// Hello verifica conectividade com o backend via /health (timeout 4s)
+func (c *Client) Hello(ctx context.Context) error {
+	fullURL := c.cfg.BackendURL + "/api/v1/health"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return fmt.Errorf("erro ao criar request: %w", err)
+	}
+
+	resp, err := c.ctrlClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("backend unreachable: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("backend unhealthy: HTTP %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// Register registra este proxy no backend (timeout 4s).
+// Envia o proxy_id obtido em registros anteriores para permitir re-registro
+// do mesmo proxy sem conflito com proxies online.
 func (c *Client) Register(ctx context.Context) error {
 	req := RegisterRequest{
 		Hostname: c.cfg.Hostname,
 		ConfigID: c.cfg.ConfigID,
+		ProxyID:  c.proxyID,
 	}
 
 	var resp RegisterResponse
-	err := c.doRequest(ctx, "POST", "/sync/register", req, &resp)
+	err := c.doRequestWith(ctx, c.ctrlClient, "POST", "/sync/register", req, &resp)
 	if err != nil {
-		return fmt.Errorf("erro ao registrar: %w", err)
+		return err
 	}
 
+	c.proxyID = resp.ProxyID
 	log.Printf("Registrado com sucesso (proxy_id: %s)", resp.ProxyID)
 	return nil
 }
 
 // GetConfig busca configuração do backend
 func (c *Client) GetConfig(ctx context.Context, currentHash string) (*ConfigResponse, error) {
-	// Constrói URL com query params
 	params := url.Values{}
 	params.Add("hostname", c.cfg.Hostname)
 	params.Add("hash", currentHash)
 
 	var resp ConfigResponse
-	err := c.doRequestWithRetry(ctx, "GET", "/sync?"+params.Encode(), nil, &resp)
+	err := c.doRequest(ctx, "GET", "/sync?"+params.Encode(), nil, &resp)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar config: %w", err)
+		return nil, err
 	}
 
 	return &resp, nil
@@ -183,35 +215,13 @@ func (c *Client) SendLogs(ctx context.Context, lines []LogLine) error {
 
 // ========== HTTP Helpers ==========
 
-// doRequest executa uma requisição HTTP simples
+// doRequest executa uma requisição HTTP simples com o client padrão (30s timeout)
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, response interface{}) error {
-	return c.doRequestInternal(ctx, method, path, body, response)
+	return c.doRequestWith(ctx, c.httpClient, method, path, body, response)
 }
 
-// doRequestWithRetry executa uma requisição HTTP com retry e backoff
-func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, response interface{}) error {
-	for {
-		err := c.doRequestInternal(ctx, method, path, body, response)
-		if err == nil {
-			// Sucesso - reset backoff
-			c.backoff.Reset()
-			return nil
-		}
-
-		waitTime := c.backoff.Next()
-
-		log.Printf("Erro na requisição: %v. Retry em %s", err, waitTime)
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(waitTime):
-			// Continua para próxima tentativa
-		}
-	}
-}
-
-func (c *Client) doRequestInternal(ctx context.Context, method, path string, body interface{}, response interface{}) error {
+// doRequestWith executa uma requisição HTTP com um http.Client específico
+func (c *Client) doRequestWith(ctx context.Context, hc *http.Client, method, path string, body interface{}, response interface{}) error {
 	fullURL := c.cfg.BackendURL + "/api/v1" + path
 
 	var bodyReader io.Reader
@@ -231,24 +241,21 @@ func (c *Client) doRequestInternal(ctx context.Context, method, path string, bod
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "proxy-helper/1.0")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("erro na requisição: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Lê body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("erro ao ler response: %w", err)
 	}
 
-	// Verifica status
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("erro HTTP %d: %s", resp.StatusCode, string(respBody))
+		return &HTTPError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
-	// Deserializa response se necessário
 	if response != nil && len(respBody) > 0 {
 		if err := json.Unmarshal(respBody, response); err != nil {
 			return fmt.Errorf("erro ao deserializar response: %w", err)
@@ -256,4 +263,23 @@ func (c *Client) doRequestInternal(ctx context.Context, method, path string, bod
 	}
 
 	return nil
+}
+
+// HTTPError representa um erro HTTP com status code acessível
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("erro HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// IsHTTPStatus verifica se um erro é um HTTPError com o status code dado
+func IsHTTPStatus(err error, code int) bool {
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode == code
+	}
+	return false
 }

@@ -46,6 +46,8 @@ func NewSyncService(
 type RegisterRequest struct {
 	Hostname string `json:"hostname"`
 	ConfigID string `json:"config_id"`
+	ProxyID  string `json:"proxy_id,omitempty"`
+	RemoteIP string `json:"-"` // extracted from request by handler
 }
 
 type RegisterResponse struct {
@@ -59,22 +61,55 @@ func (s *SyncService) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("%w: hostname is required", domain.ErrBadRequest)
 	}
 
-	proxy := &domain.Proxy{
-		Hostname: req.Hostname,
+	// Check if a proxy with this hostname already exists
+	existing, err := s.proxies.GetByHostname(ctx, req.Hostname)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("register proxy: %w", err)
 	}
 
-	// If config_id is provided, try to parse it as UUID; if not a UUID, ignore it
+	if existing != nil {
+		if existing.IsOnline {
+			// Proxy is online — only allow re-register if same identity (IP or proxy_id)
+			sameIP := existing.RegisteredIP != nil && *existing.RegisteredIP == req.RemoteIP
+			sameID := req.ProxyID != "" && req.ProxyID == existing.ID.String()
+
+			if !sameIP && !sameID {
+				return nil, fmt.Errorf("%w: hostname '%s' is already registered by an active proxy", domain.ErrConflict, req.Hostname)
+			}
+		}
+
+		// Same proxy re-registering (recovery) or offline proxy — update IP and mark online
+		_ = s.proxies.UpdateRegisteredIP(ctx, existing.ID, req.RemoteIP)
+		_ = s.proxies.UpdateLastSeen(ctx, existing.ID)
+
+		configID := ""
+		if existing.ConfigID != nil {
+			configID = existing.ConfigID.String()
+		}
+
+		return &RegisterResponse{
+			ProxyID:  existing.ID.String(),
+			ConfigID: configID,
+			Status:   "registered",
+		}, nil
+	}
+
+	// New proxy — create it
+	proxy := &domain.Proxy{
+		Hostname:     req.Hostname,
+		RegisteredIP: &req.RemoteIP,
+	}
+
 	if req.ConfigID != "" {
 		if cfgID, err := uuid.Parse(req.ConfigID); err == nil {
 			proxy.ConfigID = &cfgID
 		}
 	}
 
-	if err := s.proxies.Upsert(ctx, proxy); err != nil {
+	if err := s.proxies.Create(ctx, proxy); err != nil {
 		return nil, fmt.Errorf("register proxy: %w", err)
 	}
 
-	// Mark as online
 	_ = s.proxies.UpdateLastSeen(ctx, proxy.ID)
 
 	configID := ""

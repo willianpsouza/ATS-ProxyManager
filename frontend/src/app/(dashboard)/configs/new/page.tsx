@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
-import type { DomainRule, IPRangeRule, ParentProxy, Proxy, ApiError } from '@/types';
+import type { DomainRule, IPRangeRule, ParentProxy, ClientACLRule, Proxy, ApiError } from '@/types';
 
 export default function NewConfigPage() {
   const router = useRouter();
@@ -14,6 +14,9 @@ export default function NewConfigPage() {
   const [domains, setDomains] = useState<Omit<DomainRule, 'id'>[]>([]);
   const [ipRanges, setIpRanges] = useState<Omit<IPRangeRule, 'id'>[]>([]);
   const [parentProxies, setParentProxies] = useState<Omit<ParentProxy, 'id'>[]>([]);
+  const [clientACL, setClientACL] = useState<Omit<ClientACLRule, 'id'>[]>([
+    { cidr: '10.0.0.0/8', action: 'allow', priority: 10 },
+  ]);
   const [selectedProxyIds, setSelectedProxyIds] = useState<string[]>([]);
   const [availableProxies, setAvailableProxies] = useState<Proxy[]>([]);
 
@@ -66,6 +69,20 @@ export default function NewConfigPage() {
     setParentProxies(next);
   }
 
+  function addClientACL() {
+    setClientACL([...clientACL, { cidr: '', action: 'allow', priority: (clientACL.length + 1) * 10 }]);
+  }
+
+  function removeClientACL(i: number) {
+    setClientACL(clientACL.filter((_, idx) => idx !== i));
+  }
+
+  function updateClientACL(i: number, field: string, value: string | number) {
+    const next = [...clientACL];
+    next[i] = { ...next[i], [field]: value };
+    setClientACL(next);
+  }
+
   function toggleProxy(id: string) {
     setSelectedProxyIds((prev) =>
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
@@ -86,6 +103,7 @@ export default function NewConfigPage() {
         domains,
         ip_ranges: ipRanges,
         parent_proxies: parentProxies,
+        client_acl: clientACL,
         proxy_ids: selectedProxyIds,
       });
       toast.success('Config criada com sucesso');
@@ -249,6 +267,47 @@ export default function NewConfigPage() {
                     Ativo
                   </label>
                   <button type="button" onClick={() => removeParentProxy(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* Client ACL */}
+        <Section
+          title="ACL de Clientes (ip_allow)"
+          action={<AddButton onClick={addClientACL} label="Adicionar" />}
+        >
+          {clientACL.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhuma regra de ACL adicionada. Defaults serão usados (127.0.0.1, ::1, 10.0.0.0/8).</p>
+          ) : (
+            <div className="space-y-2">
+              {clientACL.map((acl, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    value={acl.cidr}
+                    onChange={(e) => updateClientACL(i, 'cidr', e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-1"
+                    placeholder="10.0.0.0/8"
+                  />
+                  <select
+                    value={acl.action}
+                    onChange={(e) => updateClientACL(i, 'action', e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
+                  >
+                    <option value="allow">Allow</option>
+                    <option value="deny">Deny</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={acl.priority}
+                    onChange={(e) => updateClientACL(i, 'priority', parseInt(e.target.value) || 0)}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-24"
+                    placeholder="Prioridade"
+                  />
+                  <button type="button" onClick={() => removeClientACL(i)} className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded text-lg leading-none">
                     &times;
                   </button>
                 </div>
