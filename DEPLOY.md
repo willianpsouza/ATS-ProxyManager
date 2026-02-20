@@ -245,6 +245,203 @@ Para cada instancia de ATS proxy, adicione um servico no `docker-compose.yml`:
 
 Em producao, o Helper roda como sidecar ou DaemonSet junto ao ATS real.
 
+## Deploy de proxy ATS standalone (sem backend)
+
+Para ambientes com dezenas de proxies, o backend/frontend/postgres/redis ficam em uma unica VM e cada proxy ATS roda em sua propria VM (ou container separado) apontando para o backend remoto.
+
+### Pre-requisitos no host do proxy
+
+- Docker Engine 24+
+- Conectividade de rede com o backend (porta 8080)
+
+### 1. Criar diretorio e Dockerfile
+
+```bash
+mkdir -p /opt/ats-proxy && cd /opt/ats-proxy
+```
+
+Crie o arquivo `Dockerfile`:
+
+```bash
+cat > Dockerfile << 'DOCKERFILE'
+# Build helper
+FROM golang:1.26-alpine AS helper-builder
+WORKDIR /build
+COPY helper/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /helper ./cmd/helper
+
+# ATS + helper
+FROM trafficserver/trafficserver:latest
+COPY --from=helper-builder /helper /usr/local/bin/helper
+COPY ats-config/records.yaml /opt/etc/trafficserver/records.yaml
+COPY ats-config/remap.config /opt/etc/trafficserver/remap.config
+COPY ats-config/storage.config /opt/etc/trafficserver/storage.config
+COPY ats-config/logging.yaml /opt/etc/trafficserver/logging.yaml
+RUN mkdir -p /opt/var/log/trafficserver /opt/var/run/trafficserver
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+EXPOSE 8080 8443
+ENTRYPOINT ["/entrypoint.sh"]
+DOCKERFILE
+```
+
+### 2. Copiar arquivos do repositorio
+
+No servidor do backend, copie para o host do proxy:
+
+```bash
+# No servidor do backend
+cd /opt/ATS-ProxyManager
+scp -r helper/ usuario@PROXY_HOST:/opt/ats-proxy/helper/
+scp -r proxy-full/ats-config/ usuario@PROXY_HOST:/opt/ats-proxy/ats-config/
+scp proxy-full/entrypoint.sh usuario@PROXY_HOST:/opt/ats-proxy/entrypoint.sh
+```
+
+Ou clone o repositorio inteiro e use os arquivos:
+
+```bash
+cd /opt
+git clone https://github.com/willianpsouza/ATS-ProxyManager.git
+cd ats-proxy
+cp -r /opt/ATS-ProxyManager/helper/ .
+cp -r /opt/ATS-ProxyManager/proxy-full/ats-config/ .
+cp /opt/ATS-ProxyManager/proxy-full/entrypoint.sh .
+cp /opt/ATS-ProxyManager/proxy-full/Dockerfile .
+```
+
+### 3. Criar docker-compose.yml do proxy
+
+```bash
+cat > docker-compose.yml << 'EOF'
+services:
+  ats-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      BACKEND_URL: http://BACKEND_IP:8080
+      PROXY_HOSTNAME: proxy-DATACENTER-01.empresa.local
+      SYNC_INTERVAL: "30s"
+    volumes:
+      - ats_logs:/opt/var/log/trafficserver
+    healthcheck:
+      test: ["CMD", "traffic_ctl", "server", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  ats_logs:
+EOF
+```
+
+Substitua:
+- `BACKEND_IP` pelo IP/hostname do servidor do backend
+- `proxy-DATACENTER-01.empresa.local` pelo hostname unico deste proxy
+
+### 4. Build e start
+
+```bash
+docker compose up -d --build
+```
+
+### 5. Verificar
+
+```bash
+# Container rodando
+docker compose ps
+
+# Logs do helper + ATS
+docker compose logs -f
+
+# Deve mostrar:
+#   [ATS] ATS está rodando!
+#   Iniciando proxy-helper v1.0.0
+#   Backend: http://BACKEND_IP:8080
+#   Registro OK — proxy_id: <uuid>
+```
+
+### 6. Associar config no backend
+
+O proxy aparece automaticamente no painel ao se registrar. Para associar uma config:
+
+**Via frontend:** Proxies > selecionar proxy > Atribuir Config
+
+**Via API:**
+
+```bash
+# No servidor do backend
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"root@proxy-manager.local","password":"changeme"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Listar proxies registrados
+curl -s http://localhost:8080/api/v1/proxies \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import sys,json; [print(f\"  {p['id']} - {p['hostname']} ({'online' if p['is_online'] else 'offline'})\") for p in json.load(sys.stdin)['data']]"
+
+# Atribuir config ao proxy
+curl -s -X PUT http://localhost:8080/api/v1/proxies/PROXY_UUID/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "CONFIG_UUID"}'
+```
+
+### 7. Deploy em escala (multiplos proxies)
+
+Para dezenas de proxies, o padrao recomendado:
+
+```
+                    ┌──────────────┐
+                    │   Backend    │
+                    │  + Frontend  │
+                    │  + Postgres  │
+                    │  + Redis     │
+                    │  + Nginx     │
+                    └──────┬───────┘
+                           │ :8080
+          ┌────────────────┼────────────────┐
+          │                │                │
+   ┌──────┴───────┐ ┌─────┴────────┐ ┌─────┴────────┐
+   │  ATS+Helper  │ │  ATS+Helper  │ │  ATS+Helper  │
+   │  proxy-sp-01 │ │  proxy-rj-01 │ │  proxy-us-01 │
+   │  :8080/:8443 │ │  :8080/:8443 │ │  :8080/:8443 │
+   └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+Cada proxy:
+- Roda em sua propria VM/container
+- Se registra automaticamente no backend via hostname unico
+- Recebe a config (parent.config, sni.yaml, ip_allow.yaml) do backend
+- Reporta metricas e status a cada 30s
+- Reconecta automaticamente se o backend ficar indisponivel
+
+**Convencao de hostnames:**
+
+```
+proxy-{datacenter}-{numero}.{dominio}
+```
+
+Exemplos: `proxy-sp-01.empresa.local`, `proxy-rj-01.empresa.local`, `proxy-aws-us-01.empresa.local`
+
+### 8. Atualizando os proxies
+
+```bash
+# Em cada host de proxy
+cd /opt/ats-proxy
+# Atualizar helper (se houve mudanca no codigo)
+cp -r /caminho/novo/helper/ .
+docker compose up -d --build
+```
+
+O proxy re-registra automaticamente e recebe a config vigente.
+
 ## Comandos uteis
 
 ```bash
