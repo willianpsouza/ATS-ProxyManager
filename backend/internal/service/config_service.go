@@ -787,6 +787,16 @@ func (s *ConfigService) GenerateConfigFiles(ctx context.Context, configID uuid.U
 	return parentConfig, sniYaml, ipAllowYaml, nil
 }
 
+// domainToATS converts user-facing domain format to ATS parent.config format.
+// *.example.com → .example.com (ATS uses leading dot for wildcard)
+// example.com → example.com (exact match, no change)
+func domainToATS(domain string) string {
+	if strings.HasPrefix(domain, "*.") {
+		return domain[1:] // *.example.com → .example.com
+	}
+	return domain
+}
+
 func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.DomainRule, parentProxies []domain.ParentProxy, defaultAction domain.RuleAction) string {
 	var b strings.Builder
 
@@ -811,7 +821,18 @@ func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.Do
 		parentStr = strings.Join(parentList, ";")
 	}
 
-	// IP range rules → dest_ip lines
+	// --- Infrastructure rules (always present) ---
+	b.WriteString("# Localhost\n")
+	b.WriteString("dest_ip=127.0.0.0-127.255.255.255 go_direct=true\n")
+	b.WriteString("# Link-local\n")
+	b.WriteString("dest_ip=169.254.0.0-169.254.255.255 go_direct=true\n")
+	b.WriteString("# Kubernetes\n")
+	b.WriteString("dest_domain=.svc.cluster.local go_direct=true\n")
+	b.WriteString("dest_domain=.cluster.local go_direct=true\n")
+	b.WriteString("dest_domain=localhost go_direct=true\n")
+	b.WriteString("\n")
+
+	// --- User-defined IP range rules → dest_ip lines ---
 	for _, ir := range ipRanges {
 		ipRange := cidrToRange(ir.CIDR)
 		if ir.Action == domain.ActionDirect {
@@ -821,16 +842,17 @@ func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.Do
 		}
 	}
 
-	// Domain rules → dest_domain lines
+	// --- User-defined domain rules → dest_domain lines ---
 	for _, dr := range domainRules {
+		atsDomain := domainToATS(dr.Domain)
 		if dr.Action == domain.ActionDirect {
-			b.WriteString(fmt.Sprintf("dest_domain=%s go_direct=true\n", dr.Domain))
+			b.WriteString(fmt.Sprintf("dest_domain=%s go_direct=true\n", atsDomain))
 		} else if dr.Action == domain.ActionParent && parentStr != "" {
-			b.WriteString(fmt.Sprintf("dest_domain=%s parent=\"%s\" round_robin=strict go_direct=false\n", dr.Domain, parentStr))
+			b.WriteString(fmt.Sprintf("dest_domain=%s parent=\"%s\" round_robin=strict go_direct=false\n", atsDomain, parentStr))
 		}
 	}
 
-	// Default rule based on default_action
+	// --- Default rule based on default_action ---
 	if defaultAction == domain.ActionParent && parentStr != "" {
 		b.WriteString(fmt.Sprintf("dest_domain=. parent=\"%s\" round_robin=strict go_direct=false\n", parentStr))
 	} else {
@@ -838,6 +860,17 @@ func generateParentConfig(ipRanges []domain.IPRangeRule, domainRules []domain.Do
 	}
 
 	return b.String()
+}
+
+// domainToSNI converts domain to sni.yaml fqdn format.
+// *.example.com stays *.example.com
+// .example.com → *.example.com
+// example.com stays example.com
+func domainToSNI(domain string) string {
+	if strings.HasPrefix(domain, ".") {
+		return "*" + domain
+	}
+	return domain
 }
 
 func generateSNIYaml(domainRules []domain.DomainRule) string {
@@ -848,10 +881,7 @@ func generateSNIYaml(domainRules []domain.DomainRule) string {
 
 	for _, dr := range domainRules {
 		if dr.Action == domain.ActionDirect {
-			fqdn := dr.Domain
-			if strings.HasPrefix(fqdn, ".") {
-				fqdn = "*" + fqdn
-			}
+			fqdn := domainToSNI(dr.Domain)
 			b.WriteString(fmt.Sprintf("  - fqdn: '%s'\n    tunnel_route: direct\n", fqdn))
 		}
 	}
